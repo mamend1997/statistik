@@ -1,6 +1,6 @@
 # VolleyDesk
 
-VolleyDesk mengelola pemain dan antropometri, kehadiran, kalender, log latihan, statistik live pertandingan, target performa, rekomendasi, laporan, backup, serta akses admin, sekolah, pelatih, dan pemain.
+VolleyDesk mengelola biodata dan antropometri pemain, kehadiran, kalender, kegiatan latihan, statistik live pertandingan, target performa, rekomendasi, laporan, backup, serta akses admin, sekolah, pelatih, dan pemain.
 
 ## Menjalankan lokal
 
@@ -21,9 +21,9 @@ SQLite disimpan pada `SQLITE_PATH` (default `./data/volleydesk.sqlite`). Direkto
 
 Data aplikasi dan akun disimpan server-side di SQLite. Kata sandi di-hash, sesi login memakai cookie HttpOnly, dan endpoint penulisan menerapkan pembatasan role. Untuk Railway, pasang persistent volume pada `/data` dan atur `SQLITE_PATH=/data/volleydesk.sqlite`; tanpa volume, filesystem container dapat hilang saat deploy atau restart.
 
-Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama. Admin/pelatih dapat mengimpor daftar pemain dari Excel `.xlsx` atau CSV di menu Data pemain; template `.xlsx` dapat diunduh di halaman tersebut.
+Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama. Admin/pelatih dapat mengimpor daftar pemain dari Excel `.xlsx` atau CSV di menu Data pemain; template `.xlsx` dapat diunduh di halaman tersebut. Kolom jenis kelamin dan tanggal lahir (format `YYYY-MM-DD`) bersifat opsional, sehingga template lama tetap kompatibel.
 
-Admin dapat membuat akun pemain dari Pengaturan akses dan menghubungkannya ke biodata pemain. Akun pemain hanya menerima profil, kehadiran, statistik, agenda, dan target milik pemain tersebut. Pemain tidak dapat mengubah data bersama.
+Admin dapat membuat akun pemain dari Pengaturan akses atau dari tombol **Buat login** pada menu Data pemain. Username dapat berupa username sederhana atau email; kata sandi minimal 6 karakter dan disimpan dalam bentuk hash. Akun pemain hanya menerima profil, kehadiran, statistik, agenda, dan target milik pemain tersebut. Pemain tidak dapat mengubah data bersama.
 
 Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua untuk menghapus pemain beserta catatan terkait. Akun pemain yang masih terhubung harus dihapus dahulu dari daftar akun.
 
@@ -35,7 +35,7 @@ Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua unt
 - Setelah kredensial tersedia, admin dapat mengaktifkan backup harian dan memilih waktu. Zona waktu default adalah `Asia/Jakarta`.
 - **Kirim backup sekarang** mengirim berkas melalui bot Telegram. Bot perlu dapat mengirim pesan ke chat tujuan.
 
-Menu Kalender menerima catatan latihan pribadi/tim, les, dan pertandingan dengan tanggal, waktu, catatan, serta tempat opsional. Menu Statistik pertandingan menyediakan roster dan tombol sukses/gagal live untuk blok, serangan, servis, dan receive. Target performa dapat diatur per pemain untuk minggu atau bulan berjalan.
+Menu Kalender menampilkan grid bulanan dan catatan latihan pribadi/tim, les, dan pertandingan dengan tanggal, waktu, catatan, serta tempat opsional. Menu Latihan mengelola kegiatan tersebut sekaligus catatan sesi, materi, kehadiran, dan evaluasi individu. Menu Tim memungkinkan admin dan pelatih membuat beberapa tim, mengunggah logo PNG/JPG/WebP hingga 200 KB, dan menempatkan pemain pada lebih dari satu tim. Menu Statistik merangkum kegiatan dan sesi latihan serta rekap laga, dan menyediakan roster serta tombol sukses/gagal live untuk blok, serangan, servis, dan receive. Target performa dapat diatur per pemain untuk minggu atau bulan berjalan.
 
 Admin juga dapat memilih maksimal lima item navigasi bawah serta highlight-nya untuk setiap role.
 

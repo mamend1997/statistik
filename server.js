@@ -14,8 +14,9 @@ const app = express();
 const port = Number(process.env.PORT) || 3000;
 const publicDirectory = path.resolve(__dirname, "public");
 const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const validPlayerUsername = /^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$/;
 const validRoles = new Set(["admin", "principal", "curriculum", "coach", "player"]);
-const validMenus = new Set(["dashboard", "players", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets", "settings"]);
+const validMenus = new Set(["dashboard", "players", "teams", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets", "settings"]);
 const minimumPasswordLength = 6;
 const sessionDurationMs = 8 * 60 * 60 * 1000;
 const cookieName = "volleydesk.sid";
@@ -135,6 +136,36 @@ function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function validLoginIdentifier(value) {
+  return validEmail.test(value) || validPlayerUsername.test(value);
+}
+
+function sanitizeTeams(input, players) {
+  if (input == null) return [];
+  if (!Array.isArray(input) || input.length > 100) throw new Error("Format data aplikasi tidak valid.");
+  const playerIds = new Set(players.map(player => Number(player.id)));
+  const teamIds = new Set();
+  return input.map(team => {
+    if (!isRecord(team)) throw new Error("Format data aplikasi tidak valid.");
+    const id = Number(team.id);
+    const name = typeof team.name === "string" ? team.name.trim() : "";
+    const logo = team.logo == null ? "" : team.logo;
+    if (!Number.isSafeInteger(id) || id < 1 || teamIds.has(id) ||
+        !name || name.length > 80 || typeof logo !== "string" || logo.length > 280000 ||
+        (logo && !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(logo)) ||
+        !Array.isArray(team.playerIds) || team.playerIds.length > players.length) {
+      throw new Error("Format data aplikasi tidak valid.");
+    }
+    const members = team.playerIds.map(Number);
+    if (members.some(playerId => !Number.isSafeInteger(playerId) || !playerIds.has(playerId)) ||
+        new Set(members).size !== members.length) {
+      throw new Error("Format data aplikasi tidak valid.");
+    }
+    teamIds.add(id);
+    return { id, name, logo, playerIds: members };
+  });
+}
+
 function sanitizeAppState(input, previous, role) {
   if (!isRecord(input) ||
       !Array.isArray(input.players) ||
@@ -150,6 +181,7 @@ function sanitizeAppState(input, previous, role) {
   const sourceHighlights = role === "admin" ? input.highlights : previous && previous.highlights;
   const sourceBottomNav = role === "admin" ? input.bottomNav : previous && previous.bottomNav;
   const sourceBottomHighlights = role === "admin" ? input.bottomHighlights : previous && previous.bottomHighlights;
+  const menuConfigVersion = role === "admin" ? input.menuConfigVersion : previous && previous.menuConfigVersion;
   const menuVisibility = {};
   const highlights = {};
   const bottomNav = {};
@@ -168,11 +200,13 @@ function sanitizeAppState(input, previous, role) {
   }
   const clean = {
     theme: input.theme === "dark" ? "dark" : "light",
+    menuConfigVersion: Number(menuConfigVersion) >= 1 ? 1 : 0,
     menuVisibility,
     highlights,
     bottomNav,
     bottomHighlights,
     players: input.players,
+    teams: sanitizeTeams(input.teams, input.players),
     sessions: input.sessions,
     events: input.events,
     matches: input.matches,
@@ -239,10 +273,13 @@ app.get("/health", (request, response) => {
 
 app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response, next) => {
   try {
-    const email = typeof request.body.email === "string" ? request.body.email.trim().toLowerCase() : "";
+    const rawIdentifier = typeof request.body.identifier === "string"
+      ? request.body.identifier
+      : typeof request.body.email === "string" ? request.body.email : "";
+    const identifier = rawIdentifier.trim().toLowerCase();
     const password = typeof request.body.password === "string" ? request.body.password : "";
-    if (!validEmail.test(email) || email.length > 254 || !password || password.length > 1024) {
-      apiError(response, 400, "Email dan kata sandi wajib diisi.");
+    if (!validLoginIdentifier(identifier) || identifier.length > 254 || !password || password.length > 1024) {
+      apiError(response, 400, "Username atau email dan kata sandi wajib diisi.");
       return;
     }
     const user = database.get(
@@ -250,7 +287,7 @@ app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response
               player_user_links.player_id
        FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
        WHERE app_users.email = ? COLLATE NOCASE`,
-      [email]
+      [identifier]
     );
     const passwordHash = user ? user.password_hash : await bcrypt.hash(crypto.randomBytes(24).toString("hex"), 10);
     if (!user || !(await bcrypt.compare(password, passwordHash))) {
@@ -385,6 +422,81 @@ app.delete("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin,
   }
 });
 
+app.get("/api/player-accounts", requireUser, requireOperator, (request, response) => {
+  const accounts = database.all(
+    `SELECT player_user_links.player_id AS playerId, app_users.email AS username
+     FROM player_user_links JOIN app_users ON app_users.id = player_user_links.user_id
+     ORDER BY app_users.email`
+  );
+  response.json({ accounts });
+});
+
+app.post("/api/player-accounts", requireSameOrigin, requireUser, requireOperator, async (request, response, next) => {
+  try {
+    const playerId = Number(request.body.playerId);
+    const username = typeof request.body.username === "string" ? request.body.username.trim().toLowerCase() : "";
+    const password = typeof request.body.password === "string" ? request.body.password : "";
+    const state = readAppState().data;
+    const player = state && state.players.find(item => Number(item.id) === playerId);
+    if (!Number.isSafeInteger(playerId) || !player || !validLoginIdentifier(username) || username.length > 254 ||
+        password.length < minimumPasswordLength || password.length > 1024) {
+      apiError(response, 400, `Periksa username dan kata sandi. Kata sandi minimal ${minimumPasswordLength} karakter.`);
+      return;
+    }
+    if (database.get("SELECT user_id FROM player_user_links WHERE player_id = ?", [playerId])) {
+      apiError(response, 409, "Pemain tersebut sudah memiliki akun login.");
+      return;
+    }
+    const passwordHash = await bcrypt.hash(password, 12);
+    let user;
+    database.transaction(() => {
+      database.run("INSERT INTO app_users (name, email, role, password_hash) VALUES (?, ?, 'coach', ?)", [player.name, username, passwordHash]);
+      user = database.get("SELECT id, name, email FROM app_users WHERE email = ? COLLATE NOCASE", [username]);
+      database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [user.id, playerId]);
+    });
+    response.status(201).json({ account: { playerId, username: user.email } });
+  } catch (error) {
+    if (String(error.message).includes("UNIQUE constraint failed")) {
+      apiError(response, 409, "Username tersebut sudah digunakan.");
+      return;
+    }
+    next(error);
+  }
+});
+
+app.put("/api/player-accounts/:playerId", requireSameOrigin, requireUser, requireOperator, async (request, response, next) => {
+  try {
+    const playerId = Number(request.params.playerId);
+    const username = typeof request.body.username === "string" ? request.body.username.trim().toLowerCase() : "";
+    const password = typeof request.body.password === "string" ? request.body.password : "";
+    if (!Number.isSafeInteger(playerId) || playerId < 1 || !validLoginIdentifier(username) || username.length > 254 ||
+        password.length < minimumPasswordLength || password.length > 1024) {
+      apiError(response, 400, `Periksa username dan kata sandi. Kata sandi minimal ${minimumPasswordLength} karakter.`);
+      return;
+    }
+    const linked = database.get(
+      "SELECT user_id FROM player_user_links WHERE player_id = ?",
+      [playerId]
+    );
+    if (!linked) {
+      apiError(response, 404, "Akun pemain tidak ditemukan.");
+      return;
+    }
+    const passwordHash = await bcrypt.hash(password, 12);
+    database.transaction(() => database.run(
+      "UPDATE app_users SET email = ?, password_hash = ? WHERE id = ?",
+      [username, passwordHash, linked.user_id]
+    ));
+    response.json({ account: { playerId, username } });
+  } catch (error) {
+    if (String(error.message).includes("UNIQUE constraint failed")) {
+      apiError(response, 409, "Username tersebut sudah digunakan.");
+      return;
+    }
+    next(error);
+  }
+});
+
 app.get("/api/players/template", requireUser, requireOperator, async (request, response, next) => {
   try {
     const workbook = new ExcelJS.Workbook();
@@ -397,10 +509,12 @@ app.get("/api/players/template", requireUser, requireOperator, async (request, r
       { header: "Tinggi (cm)", key: "height", width: 14 },
       { header: "Berat (kg)", key: "weight", width: 14 },
       { header: "Spike Reach (cm)", key: "spikeReach", width: 18 },
-      { header: "Block Reach (cm)", key: "blockReach", width: 18 }
+      { header: "Block Reach (cm)", key: "blockReach", width: 18 },
+      { header: "Jenis Kelamin", key: "gender", width: 20 },
+      { header: "Tanggal Lahir", key: "birthDate", width: 18 }
     ];
     sheet.views = [{ state: "frozen", ySplit: 1 }];
-    sheet.autoFilter = "A1:H1";
+    sheet.autoFilter = "A1:J1";
     sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF315EE8" } };
     const contents = await workbook.xlsx.writeBuffer();
@@ -431,7 +545,7 @@ app.post(
         apiError(response, 400, "Berkas Excel harus memiliki header dan maksimal 5.000 baris.");
         return;
       }
-      const normalizeHeader = value => String(value || "").trim().toLowerCase().replace(/\((?:cm|kg)\)/g, "").replace(/[^a-z0-9]/g, "");
+      const normalizeHeader = value => String(value || "").trim().toLowerCase().replace(/\([^)]*\)/g, "").replace(/[^a-z0-9]/g, "");
       const headerMap = new Map();
       sheet.getRow(1).eachCell((cell, column) => headerMap.set(normalizeHeader(cell.text), column));
       const fields = {
@@ -442,10 +556,12 @@ app.post(
         height: "tinggi",
         weight: "berat",
         spikeReach: "spikereach",
-        blockReach: "blockreach"
+        blockReach: "blockreach",
+        gender: "jeniskelamin",
+        birthDate: "tanggallahir"
       };
       const columns = Object.fromEntries(Object.entries(fields).map(([field, header]) => [field, headerMap.get(header)]));
-      if (Object.values(columns).some(column => !column)) {
+      if (Object.entries(columns).some(([field, column]) => ["gender", "birthDate"].includes(field) ? false : !column)) {
         apiError(response, 400, "Header Excel tidak sesuai template. Unduh template pemain terlebih dahulu.");
         return;
       }
@@ -456,6 +572,14 @@ app.post(
       }
       const players = current.data.players;
       const positions = ["Setter", "Outside Hitter", "Opposite", "Middle Blocker", "Libero"];
+      const validBirthDate = value => {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+        if (!match || value > new Date().toISOString().slice(0, 10)) return false;
+        const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+        return date.getUTCFullYear() === Number(match[1]) &&
+          date.getUTCMonth() === Number(match[2]) - 1 &&
+          date.getUTCDate() === Number(match[3]);
+      };
       let nextId = Math.max(Date.now(), ...players.map(player => Number(player.id) || 0)) + 1;
       let added = 0, skipped = 0;
       for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
@@ -463,6 +587,12 @@ app.post(
         const value = field => String(row.getCell(columns[field]).text || "").trim();
         const name = value("name");
         const className = value("className");
+        const gender = columns.gender ? value("gender") : "";
+        const birthCell = columns.birthDate ? row.getCell(columns.birthDate) : null;
+        const rawBirthDate = birthCell && birthCell.value instanceof Date
+          ? birthCell.value.toISOString().slice(0, 10)
+          : birthCell ? String(birthCell.text || "").trim() : "";
+        const birthDate = rawBirthDate;
         const numeric = Object.fromEntries(["number", "height", "weight", "spikeReach", "blockReach"].map(field => [field, Number(value(field))]));
         if (!name && !className && Object.values(numeric).every(number => !number)) continue;
         const position = positions.find(item => item.toLowerCase() === value("position").toLowerCase());
@@ -471,7 +601,9 @@ app.post(
           Number.isFinite(numeric.height) && numeric.height >= 100 && numeric.height <= 230 &&
           Number.isFinite(numeric.weight) && numeric.weight >= 20 && numeric.weight <= 180 &&
           Number.isFinite(numeric.spikeReach) && numeric.spikeReach >= 100 && numeric.spikeReach <= 350 &&
-          Number.isFinite(numeric.blockReach) && numeric.blockReach >= 100 && numeric.blockReach <= 350;
+          Number.isFinite(numeric.blockReach) && numeric.blockReach >= 100 && numeric.blockReach <= 350 &&
+          (!gender || ["Perempuan", "Laki-laki"].includes(gender)) &&
+          (!birthDate || validBirthDate(birthDate));
         const duplicate = players.some(player => player.name.toLowerCase() === name.toLowerCase() &&
           player.className.toLowerCase() === className.toLowerCase());
         if (!valid || duplicate) {
@@ -484,6 +616,8 @@ app.post(
           position,
           number: numeric.number,
           className,
+          gender,
+          birthDate,
           height: numeric.height,
           weight: numeric.weight,
           spikeReach: numeric.spikeReach,
@@ -530,6 +664,9 @@ app.get("/api/state", requireUser, (request, response) => {
         ...match,
         stats: (match.stats || []).filter(stat => Number(stat.playerId) === playerId)
       })),
+      teams: (result.data.teams || [])
+        .filter(team => (team.playerIds || []).some(id => Number(id) === playerId))
+        .map(team => ({ ...team, playerIds: [playerId] })),
       targets: Object.fromEntries(Object.entries(result.data.targets || {}).filter(([key]) => key.startsWith(`${playerId}:`)))
     };
     response.json({ data, isInitial: result.isInitial, role: request.user.role, playerId });
@@ -742,7 +879,7 @@ app.post("/api/admin/restore", requireSameOrigin, requireUser, requireAdmin, (re
     const users = backup.users.map(user => {
       if (!isRecord(user) || !Number.isSafeInteger(Number(user.id)) || Number(user.id) < 1 ||
           typeof user.name !== "string" || !user.name.trim() || user.name.length > 80 ||
-          typeof user.email !== "string" || !validEmail.test(user.email) || user.email.length > 254 ||
+          typeof user.email !== "string" || !validLoginIdentifier(user.email) || user.email.length > 254 ||
           !validRoles.has(user.backup_role || user.role) ||
           typeof user.password_hash !== "string" || !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(user.password_hash)) {
         throw new Error("Berkas backup berisi data akun yang tidak valid.");

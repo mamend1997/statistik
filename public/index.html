@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f7fb">
   <title>VolleyDesk — Manajemen Ekstrakurikuler</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=volleydesk-features-5">
 </head>
 <body>
   <section class="login-screen" id="login-screen" aria-labelledby="login-title" hidden>
@@ -17,7 +17,7 @@
         <p class="subheading">Masuk untuk mengelola kegiatan ekstrakurikuler bola voli.</p>
       </div>
       <form id="login-form" class="login-form">
-        <div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" autocomplete="username" required placeholder="nama@sekolah.sch.id"></div>
+        <div class="field"><label for="login-email">Username atau email</label><input id="login-email" name="identifier" type="text" autocomplete="username" required placeholder="Username pemain atau nama@sekolah.sch.id"></div>
         <div class="field"><label for="login-password">Kata sandi</label><input id="login-password" name="password" type="password" autocomplete="current-password" required></div>
         <p class="login-error" id="login-error" role="alert" hidden></p>
         <button class="button login-submit" id="login-submit" type="submit">Masuk ke VolleyDesk</button>
@@ -56,6 +56,6 @@
   </div>
   <div class="toast" id="toast" role="status"></div>
   <div id="modal-root"></div>
-  <script src="js/app.js?v=volleydesk-features-2" defer></script>
+  <script src="js/app.js?v=volleydesk-features-5" defer></script>
 </body>
 </html>

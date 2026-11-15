@@ -154,6 +154,9 @@
     .switch:checked { background: var(--blue); }
     .switch:after { content: ""; width: 14px; height: 14px; border-radius: 50%; background: white; position: absolute; top: 3px; left: 3px; transition: .2s; box-shadow: 0 1px 3px #0003; }
     .switch:checked:after { left: 19px; }
+    .field .switch { width: 36px; min-width: 36px; max-width: 36px; }
+    .backup-toggle-row { flex-wrap: nowrap; }
+    .backup-toggle-row .switch { flex: none; }
     .empty { color: var(--muted); text-align: center; padding: 35px 18px; font-size: 12px; }
     .toast { position: fixed; bottom: 22px; left: 50%; transform: translate(-50%, 15px); opacity: 0; pointer-events: none; background: #17233b; color: white; padding: 10px 15px; border-radius: 10px; font-size: 12px; z-index: 30; transition: .2s; box-shadow: var(--shadow); }
     .toast.show { transform: translate(-50%, 0); opacity: 1; }
@@ -176,13 +179,69 @@
     .roster-option { display: flex; align-items: center; gap: 9px; padding: 8px 0; color: var(--ink); font-size: 11px; border-bottom: 1px solid var(--line); }
     .roster-option:last-child { border-bottom: 0; }
     .roster-option input { accent-color: var(--blue); }
+    .calendar-card { overflow: hidden; }
+    .calendar-toolbar { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 17px; }
+    .calendar-toolbar > strong { font-size: 15px; text-transform: capitalize; }
+    .calendar-toolbar > div { display: flex; align-items: center; gap: 7px; }
+    .calendar-weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+    .calendar-weekdays { padding: 0 12px; border-top: 1px solid var(--line); background: var(--surface-2); }
+    .calendar-weekdays span { padding: 9px 2px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 750; }
+    .calendar-grid { gap: 1px; padding: 1px 12px 12px; background: var(--line); }
+    .calendar-day { min-width: 0; min-height: 75px; padding: 7px; border: 0; border-radius: 0; background: var(--surface); color: var(--ink); display: flex; flex-direction: column; align-items: flex-start; gap: 5px; text-align: left; }
+    .calendar-day.is-empty { background: var(--surface-2); }
+    .calendar-day:not(.is-empty):hover { background: var(--blue-soft); }
+    .calendar-day.selected { box-shadow: inset 0 0 0 2px var(--blue); background: var(--blue-soft); }
+    .calendar-day.today .calendar-day-number { color: var(--blue); font-weight: 850; }
+    .calendar-day-number { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 8px; font-size: 11px; font-weight: 650; }
+    .calendar-day-dots { display: flex; gap: 4px; min-height: 7px; }
+    .calendar-dot { width: 7px; height: 7px; display: inline-block; flex: none; border-radius: 50%; background: var(--green); }
+    .calendar-dot.blue { background: var(--blue); }
+    .calendar-dot.orange { background: var(--orange); }
+    .calendar-day-count { max-width: 100%; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .calendar-legend { display: flex; flex-wrap: wrap; gap: 13px; padding: 0 18px 13px; color: var(--muted); font-size: 10px; }
+    .calendar-legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; align-items: start; }
+    .team-card { padding: 16px; min-width: 0; }
+    .team-card-head, .team-identity, .team-actions { display: flex; align-items: center; gap: 10px; }
+    .team-card-head { justify-content: space-between; }
+    .team-identity { min-width: 0; }
+    .team-identity > div { min-width: 0; }
+    .team-identity .card-title { overflow-wrap: anywhere; }
+    .team-logo { width: 48px; height: 48px; flex: none; object-fit: cover; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); }
+    .team-logo-fallback { display: grid; place-items: center; color: var(--blue); font-size: 13px; font-weight: 850; background: var(--blue-soft); }
+    .team-actions { gap: 4px; }
+    .team-roster { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 7px; margin-top: 16px; }
+    .team-member { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); font-size: 11px; font-weight: 700; }
+    .team-member > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+    .team-member small { display: block; color: var(--muted); font-size: 9px; font-weight: 500; }
+    .team-empty { grid-column: 1 / -1; padding: 16px; }
+    .team-logo-preview-wrap { display: flex; align-items: center; min-height: 56px; }
+    .team-clear-logo { display: flex; grid-template-columns: auto 1fr; align-items: center; justify-content: start; gap: 8px; }
+    .team-clear-logo input { width: auto; }
+    .target-toolbar { align-items: flex-end; padding: 16px 18px; }
+    .target-player-picker, .target-period-picker { display: grid; gap: 5px; }
+    .target-player-picker { min-width: min(250px, 100%); }
+    .target-player-picker strong { font-size: 13px; }
+    .target-kicker { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .8px; }
+    .target-period-picker { min-width: 125px; }
+    .target-period-picker > span { color: var(--muted); font-size: 9px; font-weight: 750; }
+    .target-period-picker select { width: 100%; padding: 9px 10px; border-radius: 10px; color: var(--ink); }
     .target-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 14px 18px; }
-    .target-card { padding: 15px; min-width: 0; }
-    .target-value { font-size: 25px; font-weight: 800; margin: 8px 0 13px; }
-    .target-value span { font-size: 10px; color: var(--muted); margin-left: 5px; font-weight: 600; }
-    .target-input { display: grid; gap: 5px; }
-    .target-input label { color: var(--muted); font-size: 10px; }
-    .target-input input { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+    .target-card { padding: 15px; min-width: 0; display: grid; gap: 8px; border-radius: 15px; box-shadow: none; transition: transform .18s ease, border-color .18s ease; }
+    .target-card:hover { transform: translateY(-2px); border-color: #b7c7ff; }
+    .target-card-head { display: flex; align-items: center; justify-content: space-between; }
+    .target-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; color: var(--blue); background: var(--blue-soft); font-weight: 850; }
+    .target-label { min-height: 32px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .target-value-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+    .target-value { margin: 0; font-size: clamp(22px, 2.5vw, 29px); line-height: 1.05; font-weight: 850; letter-spacing: -.8px; }
+    .target-value-row > span { color: var(--muted); font-size: 10px; font-weight: 650; }
+    .target-input-label { margin-top: 4px; color: var(--muted); font-size: 9px; font-weight: 750; }
+    .target-input-control { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); transition: border-color .18s ease, box-shadow .18s ease; }
+    .target-input-control:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px #315ee81b; }
+    .target-input-control input { width: 100%; min-width: 0; padding: 8px 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 14px; font-weight: 750; }
+    .target-input-control input:focus { border: 0; box-shadow: none; }
+    .target-input-control input::placeholder { color: #a7b2c4; font-size: 11px; font-weight: 500; }
+    .target-input-control > span { flex: none; color: var(--muted); font-size: 9px; font-weight: 650; }
     .target-actions { display: flex; justify-content: flex-end; padding: 0 18px 15px; }
     .bottom-menu-option { margin: 0; }
     .account-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -218,6 +277,7 @@
       .section-grid { grid-template-columns: 1fr; }
       .attendance-row { grid-template-columns: 1fr; gap: 7px; }
       .status-group { flex-wrap: wrap; }
+      .switch-row.backup-toggle-row { flex-wrap: nowrap; }
       .metrics { gap: 10px; }
       .metric { padding: 14px; min-height: 115px; }
       .metric-number { font-size: 24px; }
@@ -233,6 +293,12 @@
       .toolbar-actions .button { white-space: normal; min-width: 0; }
       .inline-form { flex-wrap: wrap; }
       .target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; }
+      .target-player-picker { min-width: 0; }
+      .calendar-grid { padding: 1px 6px 8px; }
+      .calendar-day { min-height: 59px; padding: 5px 3px; align-items: center; gap: 3px; }
+      .calendar-day-count { display: none; }
+      .calendar-day-number { width: 22px; height: 22px; }
+      .team-grid { grid-template-columns: minmax(0, 1fr); }
       .live-roster { grid-template-columns: minmax(0, 1fr); padding: 10px; }
       .bottom-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 6px 5px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); box-shadow: 0 -7px 22px #17233b14; }
       .bottom-nav:empty { display: none; }
