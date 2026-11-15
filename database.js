@@ -95,6 +95,10 @@ async function initializeDatabase() {
       expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS auth_sessions_expiry ON auth_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS player_user_links (
+      user_id INTEGER PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+      player_id INTEGER NOT NULL UNIQUE
+    );
     CREATE TABLE IF NOT EXISTS app_state (
       id INTEGER PRIMARY KEY CHECK(id = 1),
       state_json TEXT NOT NULL,
@@ -109,13 +113,21 @@ async function initializeDatabase() {
       last_attempt_at INTEGER,
       last_result TEXT,
       last_message TEXT,
-      last_run_at TEXT
+      last_run_at TEXT,
+      telegram_bot_token TEXT,
+      telegram_chat_id TEXT
     );
     INSERT OR IGNORE INTO backup_settings (id) VALUES (1);
   `);
   const backupColumns = all("PRAGMA table_info(backup_settings)");
   if (!backupColumns.some(column => column.name === "last_attempt_at")) {
     db.run("ALTER TABLE backup_settings ADD COLUMN last_attempt_at INTEGER");
+  }
+  if (!backupColumns.some(column => column.name === "telegram_bot_token")) {
+    db.run("ALTER TABLE backup_settings ADD COLUMN telegram_bot_token TEXT");
+  }
+  if (!backupColumns.some(column => column.name === "telegram_chat_id")) {
+    db.run("ALTER TABLE backup_settings ADD COLUMN telegram_chat_id TEXT");
   }
   writeDatabase();
   return {

@@ -5,6 +5,7 @@ require("dotenv").config();
 const crypto = require("node:crypto");
 const path = require("node:path");
 const bcrypt = require("bcryptjs");
+const ExcelJS = require("exceljs");
 const express = require("express");
 const { rateLimit } = require("express-rate-limit");
 const { initializeDatabase } = require("./database");
@@ -13,13 +14,14 @@ const app = express();
 const port = Number(process.env.PORT) || 3000;
 const publicDirectory = path.resolve(__dirname, "public");
 const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const validRoles = new Set(["admin", "principal", "curriculum", "coach"]);
-const validMenus = new Set(["dashboard", "players", "attendance", "schedule", "training", "matches", "recommendations", "reports", "settings"]);
+const validRoles = new Set(["admin", "principal", "curriculum", "coach", "player"]);
+const validMenus = new Set(["dashboard", "players", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets", "settings"]);
 const minimumPasswordLength = 6;
 const sessionDurationMs = 8 * 60 * 60 * 1000;
 const cookieName = "volleydesk.sid";
 const maximumStateBytes = 10 * 1024 * 1024;
 const maximumTelegramDocumentBytes = 40 * 1024 * 1024;
+const excelMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const timezone = process.env.BACKUP_TIMEZONE || "Asia/Jakarta";
 let database;
 
@@ -72,8 +74,11 @@ function requestUser(request, response, next) {
   if (token) {
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const session = database.get(
-      `SELECT app_users.id, app_users.name, app_users.email, app_users.role
+      `SELECT app_users.id, app_users.name, app_users.email,
+              CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
+              player_user_links.player_id
        FROM auth_sessions JOIN app_users ON app_users.id = auth_sessions.user_id
+       LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
        WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?`,
       [tokenHash, Date.now()]
     );
@@ -143,22 +148,35 @@ function sanitizeAppState(input, previous, role) {
 
   const sourceMenus = role === "admin" ? input.menuVisibility : previous && previous.menuVisibility;
   const sourceHighlights = role === "admin" ? input.highlights : previous && previous.highlights;
+  const sourceBottomNav = role === "admin" ? input.bottomNav : previous && previous.bottomNav;
+  const sourceBottomHighlights = role === "admin" ? input.bottomHighlights : previous && previous.bottomHighlights;
   const menuVisibility = {};
   const highlights = {};
+  const bottomNav = {};
+  const bottomHighlights = {};
   for (const roleName of validRoles) {
     const configured = sourceMenus && Array.isArray(sourceMenus[roleName]) ? sourceMenus[roleName] : [];
     menuVisibility[roleName] = Array.from(new Set(configured.filter(menu => validMenus.has(menu))));
     const highlight = sourceHighlights && sourceHighlights[roleName];
     highlights[roleName] = validMenus.has(highlight) ? highlight : (menuVisibility[roleName][0] || "dashboard");
+    const configuredBottom = sourceBottomNav && Array.isArray(sourceBottomNav[roleName]) ? sourceBottomNav[roleName] : [];
+    bottomNav[roleName] = Array.from(new Set(configuredBottom.filter(menu => menuVisibility[roleName].includes(menu)))).slice(0, 5);
+    const bottomHighlight = sourceBottomHighlights && sourceBottomHighlights[roleName];
+    bottomHighlights[roleName] = bottomNav[roleName].includes(bottomHighlight)
+      ? bottomHighlight
+      : bottomNav[roleName][0] || "";
   }
   const clean = {
     theme: input.theme === "dark" ? "dark" : "light",
     menuVisibility,
     highlights,
+    bottomNav,
+    bottomHighlights,
     players: input.players,
     sessions: input.sessions,
     events: input.events,
-    matches: input.matches
+    matches: input.matches,
+    targets: isRecord(input.targets) ? input.targets : {}
   };
   if (Buffer.byteLength(JSON.stringify(clean), "utf8") > maximumStateBytes) {
     throw new Error("Ukuran data terlalu besar.");
@@ -172,6 +190,17 @@ function writeAppState(input, role, initialOnly) {
     const error = new Error("Data server sudah tersedia; import awal tidak dapat menimpanya.");
     error.status = 409;
     throw error;
+  }
+  if (current.data && isRecord(input) && Array.isArray(input.players)) {
+    const incomingIds = new Set(input.players.filter(isRecord).map(player => Number(player.id)));
+    const linkedRemoval = current.data.players.find(player =>
+      !incomingIds.has(Number(player.id)) && database.get("SELECT user_id FROM player_user_links WHERE player_id = ?", [Number(player.id)])
+    );
+    if (linkedRemoval) {
+      const error = new Error(`Hapus akun pemain ${linkedRemoval.name} sebelum menghapus biodatanya.`);
+      error.status = 409;
+      throw error;
+    }
   }
   const state = sanitizeAppState(input, current.data, role);
   database.transaction(() => {
@@ -217,7 +246,10 @@ app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response
       return;
     }
     const user = database.get(
-      "SELECT id, name, email, role, password_hash FROM app_users WHERE email = ? COLLATE NOCASE",
+      `SELECT app_users.id, app_users.name, app_users.email, app_users.role, app_users.password_hash,
+              player_user_links.player_id
+       FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
+       WHERE app_users.email = ? COLLATE NOCASE`,
       [email]
     );
     const passwordHash = user ? user.password_hash : await bcrypt.hash(crypto.randomBytes(24).toString("hex"), 10);
@@ -234,7 +266,7 @@ app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response
       database.run("INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)", [tokenHash, user.id, expiresAt]);
     });
     setSessionCookie(response, token);
-    response.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    response.json({ user: { id: user.id, name: user.name, email: user.email, role: user.player_id ? "player" : user.role, playerId: user.player_id || null } });
   } catch (error) {
     next(error);
   }
@@ -285,7 +317,13 @@ app.post("/api/password", requireSameOrigin, requireUser, passwordLimiter, async
 });
 
 app.get("/api/admin/users", requireUser, requireAdmin, (request, response) => {
-  const users = database.all("SELECT id, name, email, role FROM app_users ORDER BY name, email");
+  const users = database.all(
+    `SELECT app_users.id, app_users.name, app_users.email,
+            CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
+            player_user_links.player_id AS playerId
+     FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
+     ORDER BY app_users.name, app_users.email`
+  );
   response.json({ users });
 });
 
@@ -295,18 +333,26 @@ app.post("/api/admin/users", requireSameOrigin, requireUser, requireAdmin, async
     const email = typeof request.body.email === "string" ? request.body.email.trim().toLowerCase() : "";
     const password = typeof request.body.password === "string" ? request.body.password : "";
     const role = request.body.role;
+    const playerId = request.body.playerId == null || request.body.playerId === "" ? null : Number(request.body.playerId);
     if (!name || name.length > 80 || !validEmail.test(email) || email.length > 254 ||
-        password.length < minimumPasswordLength || password.length > 1024 || !validRoles.has(role)) {
+        password.length < minimumPasswordLength || password.length > 1024 || !validRoles.has(role) ||
+        (role === "player" && (!Number.isSafeInteger(playerId) || !readAppState().data.players.some(player => Number(player.id) === playerId))) ||
+        (role !== "player" && playerId !== null)) {
       apiError(response, 400, `Periksa data akun. Kata sandi harus memiliki minimal ${minimumPasswordLength} karakter.`);
+      return;
+    }
+    if (role === "player" && database.get("SELECT user_id FROM player_user_links WHERE player_id = ?", [playerId])) {
+      apiError(response, 409, "Pemain tersebut sudah memiliki akun login.");
       return;
     }
     const passwordHash = await bcrypt.hash(password, 12);
     let user;
     database.transaction(() => {
-      database.run("INSERT INTO app_users (name, email, role, password_hash) VALUES (?, ?, ?, ?)", [name, email, role, passwordHash]);
+      database.run("INSERT INTO app_users (name, email, role, password_hash) VALUES (?, ?, ?, ?)", [name, email, role === "player" ? "coach" : role, passwordHash]);
       user = database.get("SELECT id, name, email, role FROM app_users WHERE email = ? COLLATE NOCASE", [email]);
+      if (role === "player") database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [user.id, playerId]);
     });
-    response.status(201).json({ user });
+    response.status(201).json({ user: { ...user, role, playerId } });
   } catch (error) {
     if (String(error.message).includes("UNIQUE constraint failed: app_users.email")) {
       apiError(response, 409, "Email tersebut sudah terdaftar.");
@@ -316,8 +362,179 @@ app.post("/api/admin/users", requireSameOrigin, requireUser, requireAdmin, async
   }
 });
 
+app.delete("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin, (request, response, next) => {
+  const id = Number(request.params.id);
+  if (!Number.isSafeInteger(id) || id < 1 || id === Number(request.user.id)) {
+    apiError(response, 400, "Akun yang dipilih tidak dapat dihapus.");
+    return;
+  }
+  const user = database.get("SELECT id, role FROM app_users WHERE id = ?", [id]);
+  if (!user) {
+    apiError(response, 404, "Akun tidak ditemukan.");
+    return;
+  }
+  if (user.role === "admin" && Number(database.get("SELECT COUNT(*) AS count FROM app_users WHERE role = 'admin'").count) <= 1) {
+    apiError(response, 409, "Administrator terakhir tidak dapat dihapus.");
+    return;
+  }
+  try {
+    database.transaction(() => database.run("DELETE FROM app_users WHERE id = ?", [id]));
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/players/template", requireUser, requireOperator, async (request, response, next) => {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Data Pemain");
+    sheet.columns = [
+      { header: "Nama", key: "name", width: 28 },
+      { header: "Posisi", key: "position", width: 22 },
+      { header: "Nomor Punggung", key: "number", width: 18 },
+      { header: "Kelas", key: "className", width: 18 },
+      { header: "Tinggi (cm)", key: "height", width: 14 },
+      { header: "Berat (kg)", key: "weight", width: 14 },
+      { header: "Spike Reach (cm)", key: "spikeReach", width: 18 },
+      { header: "Block Reach (cm)", key: "blockReach", width: 18 }
+    ];
+    sheet.views = [{ state: "frozen", ySplit: 1 }];
+    sheet.autoFilter = "A1:H1";
+    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF315EE8" } };
+    const contents = await workbook.xlsx.writeBuffer();
+    response.setHeader("Content-Type", excelMimeType);
+    response.setHeader("Content-Disposition", 'attachment; filename="template-import-pemain-volleydesk.xlsx"');
+    response.send(Buffer.from(contents));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(
+  "/api/players/import",
+  requireSameOrigin,
+  requireUser,
+  requireOperator,
+  express.raw({ type: [excelMimeType, "application/octet-stream"], limit: "2mb" }),
+  async (request, response, next) => {
+    try {
+      if (!Buffer.isBuffer(request.body) || !request.body.length) {
+        apiError(response, 400, "Pilih berkas Excel terlebih dahulu.");
+        return;
+      }
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(request.body);
+      const sheet = workbook.worksheets[0];
+      if (!sheet || sheet.rowCount < 2 || sheet.rowCount > 5001) {
+        apiError(response, 400, "Berkas Excel harus memiliki header dan maksimal 5.000 baris.");
+        return;
+      }
+      const normalizeHeader = value => String(value || "").trim().toLowerCase().replace(/\((?:cm|kg)\)/g, "").replace(/[^a-z0-9]/g, "");
+      const headerMap = new Map();
+      sheet.getRow(1).eachCell((cell, column) => headerMap.set(normalizeHeader(cell.text), column));
+      const fields = {
+        name: "nama",
+        position: "posisi",
+        number: "nomorpunggung",
+        className: "kelas",
+        height: "tinggi",
+        weight: "berat",
+        spikeReach: "spikereach",
+        blockReach: "blockreach"
+      };
+      const columns = Object.fromEntries(Object.entries(fields).map(([field, header]) => [field, headerMap.get(header)]));
+      if (Object.values(columns).some(column => !column)) {
+        apiError(response, 400, "Header Excel tidak sesuai template. Unduh template pemain terlebih dahulu.");
+        return;
+      }
+      const current = readAppState();
+      if (!current.data) {
+        apiError(response, 409, "Data aplikasi belum diinisialisasi oleh administrator.");
+        return;
+      }
+      const players = current.data.players;
+      const positions = ["Setter", "Outside Hitter", "Opposite", "Middle Blocker", "Libero"];
+      let nextId = Math.max(Date.now(), ...players.map(player => Number(player.id) || 0)) + 1;
+      let added = 0, skipped = 0;
+      for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
+        const row = sheet.getRow(rowNumber);
+        const value = field => String(row.getCell(columns[field]).text || "").trim();
+        const name = value("name");
+        const className = value("className");
+        const numeric = Object.fromEntries(["number", "height", "weight", "spikeReach", "blockReach"].map(field => [field, Number(value(field))]));
+        if (!name && !className && Object.values(numeric).every(number => !number)) continue;
+        const position = positions.find(item => item.toLowerCase() === value("position").toLowerCase());
+        const valid = name && name.length <= 80 && className && className.length <= 40 && position &&
+          Number.isInteger(numeric.number) && numeric.number >= 0 && numeric.number <= 99 &&
+          Number.isFinite(numeric.height) && numeric.height >= 100 && numeric.height <= 230 &&
+          Number.isFinite(numeric.weight) && numeric.weight >= 20 && numeric.weight <= 180 &&
+          Number.isFinite(numeric.spikeReach) && numeric.spikeReach >= 100 && numeric.spikeReach <= 350 &&
+          Number.isFinite(numeric.blockReach) && numeric.blockReach >= 100 && numeric.blockReach <= 350;
+        const duplicate = players.some(player => player.name.toLowerCase() === name.toLowerCase() &&
+          player.className.toLowerCase() === className.toLowerCase());
+        if (!valid || duplicate) {
+          skipped++;
+          continue;
+        }
+        const profile = {
+          id: nextId++,
+          name,
+          position,
+          number: numeric.number,
+          className,
+          height: numeric.height,
+          weight: numeric.weight,
+          spikeReach: numeric.spikeReach,
+          blockReach: numeric.blockReach,
+          history: [{ date: new Date().toISOString().slice(0, 10), height: numeric.height, weight: numeric.weight, spikeReach: numeric.spikeReach, blockReach: numeric.blockReach }]
+        };
+        players.push(profile);
+        added++;
+      }
+      if (!added) {
+        apiError(response, 400, "Tidak ada baris pemain yang valid untuk diimpor.");
+        return;
+      }
+      writeAppState(current.data, request.user.role, false);
+      response.json({ ok: true, added, skipped });
+    } catch (error) {
+      if (error.message && /invalid|zip|central directory|unexpected end/i.test(error.message)) {
+        apiError(response, 400, "Berkas Excel tidak valid atau rusak.");
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
 app.get("/api/state", requireUser, (request, response) => {
   const result = readAppState();
+  if (request.user.role === "player" && result.data) {
+    const playerId = Number(request.user.player_id);
+    const player = result.data.players.find(item => Number(item.id) === playerId);
+    if (!player) {
+      apiError(response, 403, "Akun pemain tidak lagi terhubung ke biodata pemain.");
+      return;
+    }
+    const data = {
+      ...result.data,
+      players: [player],
+      sessions: result.data.sessions.map(session => ({
+        ...session,
+        attendance: session.attendance && session.attendance[playerId] ? { [playerId]: session.attendance[playerId] } : {},
+        evaluations: session.evaluations && session.evaluations[playerId] ? { [playerId]: session.evaluations[playerId] } : {}
+      })),
+      matches: result.data.matches.map(match => ({
+        ...match,
+        stats: (match.stats || []).filter(stat => Number(stat.playerId) === playerId)
+      })),
+      targets: Object.fromEntries(Object.entries(result.data.targets || {}).filter(([key]) => key.startsWith(`${playerId}:`)))
+    };
+    response.json({ data, isInitial: result.isInitial, role: request.user.role, playerId });
+    return;
+  }
   response.json({ ...result, role: request.user.role });
 });
 
@@ -355,19 +572,28 @@ app.post("/api/state/initialize", requireSameOrigin, requireUser, requireAdmin, 
   }
 });
 
+function telegramCredentials() {
+  const settings = database.get("SELECT telegram_bot_token, telegram_chat_id FROM backup_settings WHERE id = 1");
+  return {
+    token: process.env.TELEGRAM_BOT_TOKEN || settings.telegram_bot_token || "",
+    chatId: process.env.TELEGRAM_CHAT_ID || settings.telegram_chat_id || ""
+  };
+}
+
 function telegramConfigured() {
-  return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
+  const credentials = telegramCredentials();
+  return Boolean(credentials.token && credentials.chatId);
 }
 
 function getBackupSettings() {
-  const settings = database.get(
-    "SELECT enabled, time_local, last_result, last_message, last_run_at FROM backup_settings WHERE id = 1"
-  );
+  const settings = database.get("SELECT enabled, time_local, last_result, last_message, last_run_at, telegram_bot_token, telegram_chat_id FROM backup_settings WHERE id = 1");
   return {
     enabled: Boolean(settings.enabled),
     time: settings.time_local,
     timezone,
     telegramConfigured: telegramConfigured(),
+    botTokenSaved: Boolean(process.env.TELEGRAM_BOT_TOKEN || settings.telegram_bot_token),
+    chatIdSaved: Boolean(process.env.TELEGRAM_CHAT_ID || settings.telegram_chat_id),
     lastResult: settings.last_result,
     lastMessage: settings.last_message,
     lastRunAt: settings.last_run_at
@@ -378,7 +604,12 @@ function createBackup() {
   const state = readAppState().data;
   if (!state) throw new Error("Data aplikasi belum pernah tersimpan.");
   const users = database.all(
-    "SELECT id, name, email, role, password_hash, created_at FROM app_users ORDER BY id"
+    `SELECT app_users.id, app_users.name, app_users.email, app_users.role,
+            app_users.password_hash, app_users.created_at,
+            player_user_links.player_id,
+            CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS backup_role
+     FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
+     ORDER BY app_users.id`
   );
   const settings = database.get("SELECT enabled, time_local FROM backup_settings WHERE id = 1");
   return {
@@ -392,7 +623,8 @@ function createBackup() {
 }
 
 async function sendTelegramBackup() {
-  if (!telegramConfigured()) {
+  const credentials = telegramCredentials();
+  if (!credentials.token || !credentials.chatId) {
     const error = new Error("Telegram belum dikonfigurasi di Railway.");
     error.status = 503;
     throw error;
@@ -404,13 +636,13 @@ async function sendTelegramBackup() {
     throw new Error("Berkas backup melewati batas 40 MB untuk pengiriman bot.");
   }
   const form = new FormData();
-  form.set("chat_id", process.env.TELEGRAM_CHAT_ID);
+  form.set("chat_id", credentials.chatId);
   form.set("caption", `VolleyDesk backup ${new Date().toLocaleString("id-ID", { timeZone: timezone })}`);
   form.set("document", new Blob([contents], { type: "application/json" }), `volleydesk-backup-${new Date().toISOString().slice(0, 10)}.json`);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const result = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendDocument`, {
+    const result = await fetch(`https://api.telegram.org/bot${credentials.token}/sendDocument`, {
       method: "POST",
       body: form,
       signal: controller.signal
@@ -440,15 +672,28 @@ app.get("/api/admin/backup-settings", requireUser, requireAdmin, (request, respo
 app.put("/api/admin/backup-settings", requireSameOrigin, requireUser, requireAdmin, (request, response) => {
   const enabled = request.body.enabled === true;
   const time = typeof request.body.time === "string" ? request.body.time : "";
+  const botToken = typeof request.body.botToken === "string" ? request.body.botToken.trim() : "";
+  const chatId = typeof request.body.chatId === "string" ? request.body.chatId.trim() : "";
+  const clearCredentials = request.body.clearCredentials === true;
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
     apiError(response, 400, "Format waktu backup tidak valid.");
     return;
   }
-  if (enabled && !telegramConfigured()) {
-    apiError(response, 503, "Atur TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di Railway sebelum mengaktifkan backup.");
+  if (botToken.length > 256 || chatId.length > 128 || (botToken && !/^\d+:[A-Za-z0-9_-]{20,}$/.test(botToken))) {
+    apiError(response, 400, "Format token bot atau chat ID tidak valid.");
     return;
   }
-  database.transaction(() => database.run("UPDATE backup_settings SET enabled = ?, time_local = ? WHERE id = 1", [enabled ? 1 : 0, time]));
+  const stored = database.get("SELECT telegram_bot_token, telegram_chat_id FROM backup_settings WHERE id = 1");
+  const nextToken = process.env.TELEGRAM_BOT_TOKEN || (clearCredentials ? "" : botToken || stored.telegram_bot_token || "");
+  const nextChatId = process.env.TELEGRAM_CHAT_ID || (clearCredentials ? "" : chatId || stored.telegram_chat_id || "");
+  if (enabled && !(nextToken && nextChatId)) {
+    apiError(response, 503, "Isi token bot dan chat ID terlebih dahulu sebelum mengaktifkan backup.");
+    return;
+  }
+  database.transaction(() => database.run(
+    "UPDATE backup_settings SET enabled = ?, time_local = ?, telegram_bot_token = ?, telegram_chat_id = ? WHERE id = 1",
+    [enabled ? 1 : 0, time, process.env.TELEGRAM_BOT_TOKEN ? stored.telegram_bot_token : nextToken || null, process.env.TELEGRAM_CHAT_ID ? stored.telegram_chat_id : nextChatId || null]
+  ));
   response.json(getBackupSettings());
 });
 
@@ -498,7 +743,7 @@ app.post("/api/admin/restore", requireSameOrigin, requireUser, requireAdmin, (re
       if (!isRecord(user) || !Number.isSafeInteger(Number(user.id)) || Number(user.id) < 1 ||
           typeof user.name !== "string" || !user.name.trim() || user.name.length > 80 ||
           typeof user.email !== "string" || !validEmail.test(user.email) || user.email.length > 254 ||
-          !validRoles.has(user.role) ||
+          !validRoles.has(user.backup_role || user.role) ||
           typeof user.password_hash !== "string" || !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(user.password_hash)) {
         throw new Error("Berkas backup berisi data akun yang tidak valid.");
       }
@@ -510,7 +755,8 @@ app.post("/api/admin/restore", requireSameOrigin, requireUser, requireAdmin, (re
         id: Number(user.id),
         name: user.name.trim(),
         email,
-        role: user.role,
+        role: user.backup_role || user.role,
+        playerId: user.player_id == null ? null : Number(user.player_id),
         passwordHash: user.password_hash,
         createdAt: typeof user.created_at === "string" && user.created_at.length <= 40
           ? user.created_at
@@ -519,12 +765,19 @@ app.post("/api/admin/restore", requireSameOrigin, requireUser, requireAdmin, (re
     });
     database.transaction(() => {
       database.run("DELETE FROM auth_sessions");
+      database.run("DELETE FROM player_user_links");
       database.run("DELETE FROM app_users");
       for (const user of users) {
         database.run(
           "INSERT INTO app_users (id, name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-          [user.id, user.name, user.email, user.role, user.passwordHash, user.createdAt || new Date().toISOString()]
+          [user.id, user.name, user.email, user.role === "player" ? "coach" : user.role, user.passwordHash, user.createdAt || new Date().toISOString()]
         );
+        if (user.role === "player") {
+          if (!Number.isSafeInteger(user.playerId) || !state.players.some(player => Number(player.id) === user.playerId)) {
+            throw new Error("Berkas backup berisi akun pemain tanpa biodata yang sesuai.");
+          }
+          database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [user.id, user.playerId]);
+        }
       }
       database.run(
         `INSERT INTO app_state (id, state_json, is_initial, updated_at) VALUES (1, ?, 0, CURRENT_TIMESTAMP)

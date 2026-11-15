@@ -1,6 +1,6 @@
 # VolleyDesk
 
-VolleyDesk mengelola pemain, antropometri, kehadiran, jadwal, log latihan, statistik pertandingan, rekomendasi, laporan, dan hak akses ekstrakurikuler bola voli.
+VolleyDesk mengelola pemain dan antropometri, kehadiran, kalender, log latihan, statistik live pertandingan, target performa, rekomendasi, laporan, backup, serta akses admin, sekolah, pelatih, dan pemain.
 
 ## Menjalankan lokal
 
@@ -21,15 +21,23 @@ SQLite disimpan pada `SQLITE_PATH` (default `./data/volleydesk.sqlite`). Direkto
 
 Data aplikasi dan akun disimpan server-side di SQLite. Kata sandi di-hash, sesi login memakai cookie HttpOnly, dan endpoint penulisan menerapkan pembatasan role. Untuk Railway, pasang persistent volume pada `/data` dan atur `SQLITE_PATH=/data/volleydesk.sqlite`; tanpa volume, filesystem container dapat hilang saat deploy atau restart.
 
-Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama.
+Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama. Admin/pelatih dapat mengimpor daftar pemain dari Excel `.xlsx` atau CSV di menu Data pemain; template `.xlsx` dapat diunduh di halaman tersebut.
+
+Admin dapat membuat akun pemain dari Pengaturan akses dan menghubungkannya ke biodata pemain. Akun pemain hanya menerima profil, kehadiran, statistik, agenda, dan target milik pemain tersebut. Pemain tidak dapat mengubah data bersama.
+
+Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua untuk menghapus pemain beserta catatan terkait. Akun pemain yang masih terhubung harus dihapus dahulu dari daftar akun.
 
 ## Backup, restore, dan Telegram
 
 - Halaman **Pengaturan akses** menyediakan unduhan backup JSON dan pemulihan dari backup JSON.
 - Backup berisi data operasional, akun pengguna, hash kata sandi, dan jadwal backup. Sesi login dan token Telegram tidak disertakan. Simpan berkas backup dan chat Telegram secara privat.
-- Untuk backup otomatis Telegram, atur `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID` sebagai Railway Variables/Secrets.
-- Administrator kemudian dapat mengaktifkan backup harian dan memilih waktu pada halaman Pengaturan. Zona waktu default adalah `Asia/Jakarta`.
+- Pada Pengaturan akses, isi **Telegram Bot Token** dan **Telegram Chat ID**, lalu simpan. Token tidak ditampilkan kembali dan tidak dimasukkan ke file backup. Alternatifnya, atur `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID` sebagai Railway Variables/Secrets; variabel lingkungan memiliki prioritas.
+- Setelah kredensial tersedia, admin dapat mengaktifkan backup harian dan memilih waktu. Zona waktu default adalah `Asia/Jakarta`.
 - **Kirim backup sekarang** mengirim berkas melalui bot Telegram. Bot perlu dapat mengirim pesan ke chat tujuan.
+
+Menu Kalender menerima catatan latihan pribadi/tim, les, dan pertandingan dengan tanggal, waktu, catatan, serta tempat opsional. Menu Statistik pertandingan menyediakan roster dan tombol sukses/gagal live untuk blok, serangan, servis, dan receive. Target performa dapat diatur per pemain untuk minggu atau bulan berjalan.
+
+Admin juga dapat memilih maksimal lima item navigasi bawah serta highlight-nya untuk setiap role.
 
 Jangan menyimpan token bot atau kata sandi produksi di Git atau mengirimkannya melalui chat. Simpan salinan backup di lokasi aman lain; Telegram bukan satu-satunya salinan yang disarankan.
 
