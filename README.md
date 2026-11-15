@@ -1,29 +1,45 @@
 # VolleyDesk
 
-VolleyDesk is a mobile-friendly volleyball extracurricular management app. Its demo login and operational data are kept in the current browser; the Node.js service only serves the app.
+VolleyDesk mengelola pemain, antropometri, kehadiran, jadwal, log latihan, statistik pertandingan, rekomendasi, laporan, dan hak akses ekstrakurikuler bola voli.
 
-## Run locally
+## Menjalankan lokal
 
-1. Install Node.js 18 or newer.
-2. Install dependencies and start the app:
+1. Gunakan Node.js 18 atau lebih baru.
+2. Salin `.env.example` menjadi `.env`, lalu ganti `BOOTSTRAP_ADMIN_PASSWORD`.
+3. Jalankan:
 
    ```sh
    npm install
    npm start
    ```
 
-3. Open `http://localhost:3000`.
+4. Buka `http://localhost:3000`. Akun administrator dibuat dari `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, dan `BOOTSTRAP_ADMIN_PASSWORD`. Tanpa `.env`, mode lokal memakai akun awal `admin@volleydesk.demo` / `VoliDesk!2026`.
 
-The first browser visit creates a sample administrator:
+SQLite disimpan pada `SQLITE_PATH` (default `./data/volleydesk.sqlite`). Direktori database lokal diabaikan Git.
 
-- Email: `admin@volleydesk.demo`
-- Password: `VoliDesk!2026`
+## Database dan sesi
 
-Change the password after signing in using **Ubah sandi**. The browser stores a PBKDF2 hash, but this is still demo-only authentication: browser storage and role checks can be changed by the user and are not suitable for protecting real student data.
-New passwords and temporary user passwords must be at least 6 characters long.
+Data aplikasi dan akun disimpan server-side di SQLite. Kata sandi di-hash, sesi login memakai cookie HttpOnly, dan endpoint penulisan menerapkan pembatasan role. Untuk Railway, pasang persistent volume pada `/data` dan atur `SQLITE_PATH=/data/volleydesk.sqlite`; tanpa volume, filesystem container dapat hilang saat deploy atau restart.
 
-## Deploy to Railway
+Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama.
 
-The project deploys as one Node.js web service with no separate database service. Railway uses `npm start` and supplies the dynamic `PORT`. GitHub auto-deploys are configured for the `main` branch.
+## Backup, restore, dan Telegram
 
-This reduces Railway resources but does not guarantee zero charges; review your Railway plan and usage. Login accounts, changed passwords, and team data are browser-specific and do not synchronize across devices or reliably survive clearing browser storage. Use a server-side database and authorization before using real student records.
+- Halaman **Pengaturan akses** menyediakan unduhan backup JSON dan pemulihan dari backup JSON.
+- Backup berisi data operasional, akun pengguna, hash kata sandi, dan jadwal backup. Sesi login dan token Telegram tidak disertakan. Simpan berkas backup dan chat Telegram secara privat.
+- Untuk backup otomatis Telegram, atur `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID` sebagai Railway Variables/Secrets.
+- Administrator kemudian dapat mengaktifkan backup harian dan memilih waktu pada halaman Pengaturan. Zona waktu default adalah `Asia/Jakarta`.
+- **Kirim backup sekarang** mengirim berkas melalui bot Telegram. Bot perlu dapat mengirim pesan ke chat tujuan.
+
+Jangan menyimpan token bot atau kata sandi produksi di Git atau mengirimkannya melalui chat. Simpan salinan backup di lokasi aman lain; Telegram bukan satu-satunya salinan yang disarankan.
+
+## Railway
+
+Service menggunakan `npm start` dan port dinamis `PORT`. GitHub auto-deploy tetap diarahkan ke branch `main`. Atur variabel berikut pada Railway:
+
+- `SQLITE_PATH=/data/volleydesk.sqlite`
+- `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_PASSWORD`
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (untuk backup Telegram)
+- `BACKUP_TIMEZONE=Asia/Jakarta` (opsional)
+
+Persistent volume dan pemakaian service dapat menimbulkan biaya. Periksa paket dan pemakaian Railway; biaya nol tidak dijamin.

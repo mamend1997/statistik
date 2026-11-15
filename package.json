@@ -8,7 +8,11 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^18.0.10",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.7.4",
+    "sql.js": "^1.16.0"
   },
   "engines": {
     "node": ">=18"

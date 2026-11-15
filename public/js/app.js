@@ -1,11 +1,7 @@
 (function () {
       "use strict";
       const STORAGE_KEY = "volleyDeskDataV1";
-      const DEMO_USERS_KEY = "volleyDeskDemoUsersV1";
-      const DEMO_SESSION_KEY = "volleyDeskDemoSessionV1";
-      const DEMO_ADMIN_EMAIL = "admin@volleydesk.demo";
-      const DEMO_ADMIN_PASSWORD = "VoliDesk!2026";
-      const PASSWORD_HASH_ITERATIONS = 210000;
+      const LEGACY_IMPORTED_KEY = "volleyDeskLegacyImportedV1";
       const MIN_PASSWORD_LENGTH = 6;
       const roles = {
         admin: "Admin / Operator",
@@ -34,12 +30,6 @@
           coach: ["dashboard", "players", "attendance", "schedule", "training", "matches", "recommendations", "reports"]
         },
         highlights: { admin: "dashboard", principal: "dashboard", curriculum: "schedule", coach: "attendance" },
-        users: [
-          { name: "Administrator", role: "admin", email: "admin@sekolah.sch.id" },
-          { name: "Kepala Sekolah", role: "principal", email: "kepsek@sekolah.sch.id" },
-          { name: "Wakasek Kurikulum", role: "curriculum", email: "kurikulum@sekolah.sch.id" },
-          { name: "Pelatih Voli", role: "coach", email: "pelatih@sekolah.sch.id" }
-        ],
         players: [
           { id: 1, name: "Nadia Putri", position: "Setter", number: 7, className: "XI IPA 1", height: 166, weight: 55, spikeReach: 274, blockReach: 262, history: [{ date: "2026-09-10", height: 165, weight: 54, spikeReach: 271, blockReach: 260 }, { date: "2026-11-01", height: 166, weight: 55, spikeReach: 274, blockReach: 262 }] },
           { id: 2, name: "Alya Safitri", position: "Outside Hitter", number: 12, className: "X IPA 2", height: 171, weight: 58, spikeReach: 286, blockReach: 273, history: [{ date: "2026-10-12", height: 170, weight: 58, spikeReach: 282, blockReach: 270 }, { date: "2026-11-02", height: 171, weight: 58, spikeReach: 286, blockReach: 273 }] },
@@ -68,13 +58,15 @@
       function liberoNumber() { return 3; }
       let signedInUser = null;
       let serverUsers = [];
-      let data;
+      let data = JSON.parse(JSON.stringify(defaultData));
+      let backupSettings = null;
+      let legacyData = null;
+      let saveQueue = Promise.resolve();
       try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-        data = saved && saved.players && saved.sessions ? Object.assign(defaultData, saved) : defaultData;
+        const saved = localStorage.getItem(STORAGE_KEY);
+        legacyData = saved ? JSON.parse(saved) : null;
       } catch (error) {
-        console.error("Tidak dapat membaca data lokal VolleyDesk.", error);
-        data = defaultData;
+        console.error("Data lama VolleyDesk di browser tidak dapat dibaca.", error);
       }
       let currentPage = "dashboard";
       let settingsRoleKey = data.role || "coach";
@@ -84,39 +76,17 @@
       let pendingAttendance = {};
 
       const $ = (selector, root) => (root || document).querySelector(selector);
-      function bytesToHex(bytes) {
-        return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
-      }
-      async function hashPassword(password, salt) {
-        if (!crypto.subtle) throw new Error("Login demo memerlukan browser modern melalui HTTPS atau localhost.");
-        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-        const bits = await crypto.subtle.deriveBits({
-          name: "PBKDF2",
-          salt: Uint8Array.from(salt.match(/.{2}/g), byte => parseInt(byte, 16)),
-          iterations: PASSWORD_HASH_ITERATIONS,
-          hash: "SHA-256"
-        }, key, 256);
-        return bytesToHex(new Uint8Array(bits));
-      }
-      async function makeDemoUser(name, email, role, password) {
-        const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
-        return { id: crypto.randomUUID(), name, email, role, salt, passwordHash: await hashPassword(password, salt) };
-      }
-      async function readDemoUsers() {
-        const saved = localStorage.getItem(DEMO_USERS_KEY);
-        if (saved) {
-          const users = JSON.parse(saved);
-          if (!Array.isArray(users)) throw new Error("Data akun demo rusak. Hapus data situs lalu muat ulang.");
-          return users;
+      async function api(url, options) {
+        const response = await fetch(url, Object.assign({ credentials: "same-origin" }, options || {}));
+        if (response.status === 204) return null;
+        let payload = null;
+        try { payload = await response.json(); } catch {}
+        if (!response.ok) {
+          const error = new Error(payload && payload.error ? payload.error : "Permintaan ke server gagal.");
+          error.status = response.status;
+          throw error;
         }
-        const firstAdmin = await makeDemoUser("Administrator", DEMO_ADMIN_EMAIL, "admin", DEMO_ADMIN_PASSWORD);
-        const users = [firstAdmin];
-        localStorage.setItem(DEMO_USERS_KEY, JSON.stringify(users));
-        return users;
-      }
-      function persistDemoUsers(users) {
-        localStorage.setItem(DEMO_USERS_KEY, JSON.stringify(users));
-        serverUsers = users.map(({ id, name, email, role }) => ({ id, name, email, role }));
+        return payload;
       }
       const esc = value => String(value == null ? "" : value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
       const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -127,8 +97,17 @@
       const playerById = id => data.players.find(p => Number(p.id) === Number(id));
       const visiblePages = () => pages.filter(p => p.roles.includes(activeRole()) && (data.menuVisibility[activeRole()] || []).includes(p.id));
       function persist() {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
-        catch (error) { console.error("Penyimpanan data VolleyDesk gagal.", error); toast("Penyimpanan gagal. Periksa ruang browser."); }
+        const snapshot = JSON.stringify(data);
+        saveQueue = saveQueue.catch(() => {}).then(() => api("/api/state", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: JSON.parse(snapshot) })
+        }));
+        return saveQueue.then(() => true).catch(error => {
+          console.error("Penyimpanan data VolleyDesk ke server gagal.", error);
+          toast(error.message || "Penyimpanan ke server gagal.");
+          return false;
+        });
       }
       function toast(message) {
         const node = $("#toast"); node.textContent = message; node.classList.add("show");
@@ -325,12 +304,27 @@
       function settingsPage() {
         const role = settingsRoleKey;
         const allowed = data.menuVisibility[role] || [];
-        return `${heading("Pengaturan akses", "Atur menu yang terlihat dan menu sorotan untuk setiap role.", '<button class="button secondary" data-action="add-user">＋ Tambah akun</button>')}
+        const backup = backupSettings || { enabled: false, time: "23:00", timezone: "Asia/Jakarta", telegramConfigured: false };
+        const backupStatus = backup.lastRunAt
+          ? `${esc(backup.lastMessage || "")} · ${esc(new Date(backup.lastRunAt + (backup.lastRunAt.includes("Z") ? "" : "Z")).toLocaleString("id-ID"))}`
+          : "Belum ada pengiriman backup.";
+        return `${heading("Pengaturan akses", "Atur akses menu, akun pengguna, dan backup data.", '<button class="button secondary" data-action="add-user">＋ Tambah akun</button>')}
           <div class="grid dashboard-grid"><section class="card"><div class="card-head"><div><h2 class="card-title">Konfigurasi menu dinamis</h2><p class="card-sub">Centang menu yang dapat dibuka oleh setiap role.</p></div><select class="select-mini" id="settings-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}" ${role === id ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
           <div style="padding:0 19px 18px">${pages.map(p => `<div class="switch-row"><div><div class="note-title">${esc(p.label)}</div><div class="note-copy">Atur visibilitas menu untuk ${esc(roles[role])}</div></div><input class="switch menu-switch" type="checkbox" data-menu="${p.id}" ${allowed.includes(p.id) ? "checked" : ""} ${p.roles.includes(role) ? "" : "disabled"} aria-label="Izinkan menu ${esc(p.label)}"></div>`).join("")}
           <div class="field" style="margin-top:15px"><label for="highlight-select">Menu sorotan / pin role ini</label><select id="highlight-select">${pages.filter(p => allowed.includes(p.id) && p.roles.includes(role)).map(p => `<option value="${p.id}" ${data.highlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div></div></section>
-          <section class="card side-note"><h2 class="card-title">Akun pengguna demo</h2><p class="card-sub">Daftar akun pada browser ini</p>${serverUsers.map(u => `<div class="note-item"><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div>`).join("")}
-          <div class="privacy-note">Login demo hanya membatasi tampilan aplikasi. Akun dan data tersimpan di browser dan tidak aman untuk melindungi data siswa.</div></section></div>`;
+          <section class="card side-note"><h2 class="card-title">Akun pengguna</h2><p class="card-sub">Akun tersimpan di database VolleyDesk</p>${serverUsers.map(u => `<div class="note-item"><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div>`).join("")}
+          <div class="privacy-note">Akses akun diverifikasi oleh server. Berikan akun hanya kepada pengguna yang berwenang.</div></section></div>
+          <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Backup dan pemulihan data</h2><p class="card-sub">Database SQLite disimpan di volume persisten Railway.</p></div><span class="tag ${backup.telegramConfigured ? "blue" : "orange"}">${backup.telegramConfigured ? "Telegram siap" : "Telegram belum dikonfigurasi"}</span></div>
+            <div class="form-grid" style="padding:0 19px 18px">
+              <div class="field"><label class="switch-row" for="backup-enabled"><span>Backup harian Telegram</span><input id="backup-enabled" type="checkbox" ${backup.enabled ? "checked" : ""} ${backup.telegramConfigured ? "" : "disabled"}></label></div>
+              <div class="field"><label for="backup-time">Waktu kirim (${esc(backup.timezone || "Asia/Jakarta")})</label><input id="backup-time" type="time" value="${esc(backup.time || "23:00")}" required></div>
+              <div class="field full"><p class="card-sub">${backup.telegramConfigured ? "Token bot dan chat ID sudah tersedia sebagai secret Railway." : "Atur TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di Railway Variables untuk mengaktifkan pengiriman ke Telegram."}</p></div>
+              <div class="field full" style="display:flex;gap:8px;flex-wrap:wrap"><button class="button" data-action="save-backup-settings">Simpan jadwal</button><button class="button secondary" data-action="backup-now" ${backup.telegramConfigured ? "" : "disabled"}>Kirim backup sekarang</button><button class="button secondary" data-action="download-backup">Unduh backup JSON</button></div>
+              <div class="field"><label for="backup-restore-file">Pulihkan dari backup JSON</label><input id="backup-restore-file" type="file" accept=".json,application/json"></div>
+              <div class="field" style="display:flex;align-items:end"><button class="button secondary" data-action="restore-backup">Pulihkan data</button></div>
+              <div class="field full"><p class="privacy-note">${backupStatus}</p></div>
+            </div>
+          </section>`;
       }
       function pageContent() {
         switch (currentPage) {
@@ -368,7 +362,16 @@
           if (submitButton) submitButton.disabled = true;
           try {
             const result = await onSubmit(new FormData(form));
-            if (result !== false) { root.innerHTML = ""; persist(); render(); }
+            if (result !== false) {
+              if (!await persist()) {
+                if (submitButton) submitButton.disabled = false;
+                return;
+              }
+              root.innerHTML = "";
+              render();
+            } else if (submitButton) {
+              submitButton.disabled = false;
+            }
           } catch (error) {
             toast(error.message || "Permintaan gagal.");
             if (submitButton) submitButton.disabled = false;
@@ -455,31 +458,27 @@
             toast("Konfirmasi kata sandi baru tidak sama.");
             return false;
           }
-          const users = await readDemoUsers();
-          const user = users.find(account => account.id === signedInUser.id);
-          if (!user || await hashPassword(String(fd.get("currentPassword")), user.salt) !== user.passwordHash) {
-            toast("Kata sandi saat ini tidak sesuai.");
-            return false;
-          }
-          const replacement = await makeDemoUser(user.name, user.email, user.role, newPassword);
-          user.salt = replacement.salt;
-          user.passwordHash = replacement.passwordHash;
-          persistDemoUsers(users);
+          await api("/api/password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ currentPassword: String(fd.get("currentPassword")), newPassword })
+          });
           toast("Kata sandi berhasil diubah.");
         });
         $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function addUserModal() {
         showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role">${Object.entries(roles).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><p class="privacy-note">Bagikan kata sandi sementara melalui kanal aman dan minta pengguna menggantinya sebelum dipakai bersama.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
-          const users = await readDemoUsers();
           const email = String(fd.get("email")).trim().toLowerCase();
-          if (users.some(user => user.email === email)) throw new Error("Email tersebut sudah terdaftar.");
           const password = String(fd.get("password"));
           if (password.length < MIN_PASSWORD_LENGTH) throw new Error(`Kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter.`);
-          const user = await makeDemoUser(String(fd.get("name")).trim(), email, fd.get("role"), password);
-          users.push(user);
-          persistDemoUsers(users);
-          toast("Akun demo berhasil dibuat pada browser ini.");
+          const result = await api("/api/admin/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: String(fd.get("name")).trim(), email, role: fd.get("role"), password })
+          });
+          serverUsers.push(result.user);
+          toast("Akun pengguna berhasil dibuat.");
         });
         $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
@@ -508,9 +507,84 @@
         }
         toast("Laporan CSV berhasil diekspor.");
       }
+      function applyServerState(state) {
+        data = Object.assign(JSON.parse(JSON.stringify(defaultData)), state || {});
+        data.menuVisibility = Object.assign({}, defaultData.menuVisibility, data.menuVisibility || {});
+        data.highlights = Object.assign({}, defaultData.highlights, data.highlights || {});
+        data.role = signedInUser.role;
+        settingsRoleKey = signedInUser.role;
+        selectedSessionId = data.sessions[0] ? data.sessions[0].id : null;
+        selectedMatchId = data.matches[0] ? data.matches[0].id : null;
+      }
+      async function saveBackupSchedule() {
+        try {
+          backupSettings = await api("/api/admin/backup-settings", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              enabled: $("#backup-enabled").checked,
+              time: $("#backup-time").value
+            })
+          });
+          render();
+          toast("Jadwal backup disimpan.");
+        } catch (error) {
+          toast(error.message);
+        }
+      }
+      async function sendBackupNow() {
+        try {
+          backupSettings = await api("/api/admin/backup/telegram", { method: "POST" });
+          render();
+          toast("Backup berhasil dikirim ke Telegram.");
+        } catch (error) {
+          toast(error.message);
+        }
+      }
+      async function downloadBackup() {
+        try {
+          const response = await fetch("/api/admin/backup/download", { credentials: "same-origin" });
+          if (!response.ok) {
+            let payload = null;
+            try { payload = await response.json(); } catch {}
+            throw new Error(payload && payload.error ? payload.error : "Unduh backup gagal.");
+          }
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `volleydesk-backup-${todayISO()}.json`;
+          link.click();
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          toast("Backup berhasil diunduh.");
+        } catch (error) {
+          toast(error.message);
+        }
+      }
+      async function restoreBackup() {
+        const fileInput = $("#backup-restore-file");
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) {
+          toast("Pilih berkas backup JSON terlebih dahulu.");
+          return;
+        }
+        if (!window.confirm("Pemulihan akan mengganti seluruh data pemain, absensi, jadwal, latihan, dan statistik saat ini. Lanjutkan?")) return;
+        try {
+          const backup = JSON.parse(await file.text());
+          await api("/api/admin/restore", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ backup })
+          });
+          window.alert("Data dan akun berhasil dipulihkan. Silakan masuk kembali menggunakan akun yang ada di backup.");
+          window.location.reload();
+        } catch (error) {
+          toast(error.message || "Berkas backup tidak valid.");
+        }
+      }
       function bindContentEvents() {
         $("#content").querySelectorAll("[data-page]").forEach(el => el.addEventListener("click", () => { currentPage = el.dataset.page; render(); }));
-        $("#content").querySelectorAll("[data-action]").forEach(el => el.addEventListener("click", () => {
+        $("#content").querySelectorAll("[data-action]").forEach(el => el.addEventListener("click", async () => {
           switch (el.dataset.action) {
             case "add-player": addPlayerModal(); break;
             case "new-session": newSessionModal(); break;
@@ -518,6 +592,10 @@
             case "add-match": addMatchModal(); break;
             case "add-stat": addStatModal(); break;
             case "add-user": addUserModal(); break;
+            case "save-backup-settings": await saveBackupSchedule(); break;
+            case "backup-now": await sendBackupNow(); break;
+            case "download-backup": await downloadBackup(); break;
+            case "restore-backup": await restoreBackup(); break;
             case "save-attendance": {
               const s = data.sessions.find(x => Number(x.id) === Number(selectedSessionId));
               if (s) { s.attendance = Object.assign({}, pendingAttendance[s.id] || {}); toast("Absensi tersimpan."); persist(); render(); }
@@ -574,12 +652,14 @@
         submitButton.disabled = true;
         submitButton.textContent = "Memeriksa akun...";
         try {
-          const users = await readDemoUsers();
-          const email = String(formData.get("email")).trim().toLowerCase();
-          const user = users.find(account => account.email === email);
-          const passwordHash = user ? await hashPassword(String(formData.get("password")), user.salt) : "";
-          if (!user || passwordHash !== user.passwordHash) throw new Error("Email atau kata sandi tidak sesuai.");
-          sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({ userId: user.id }));
+          await api("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: String(formData.get("email")).trim().toLowerCase(),
+              password: String(formData.get("password"))
+            })
+          });
           window.location.reload();
         } catch (error) {
           errorMessage.textContent = error.message || "Tidak dapat masuk. Silakan coba lagi.";
@@ -588,30 +668,64 @@
           submitButton.textContent = "Masuk ke VolleyDesk";
         }
       });
-      $("#logout-button").addEventListener("click", () => {
-        sessionStorage.removeItem(DEMO_SESSION_KEY);
-        window.location.reload();
+      $("#logout-button").addEventListener("click", async () => {
+        try {
+          await api("/api/logout", { method: "POST" });
+          window.location.reload();
+        } catch (error) {
+          toast(error.message);
+        }
       });
       $("#password-button").addEventListener("click", changePasswordModal);
       async function initializeApp() {
+        $("#login-screen").hidden = false;
         try {
-          const users = await readDemoUsers();
-          serverUsers = users.map(({ id, name, email, role }) => ({ id, name, email, role }));
-          const storedSession = JSON.parse(sessionStorage.getItem(DEMO_SESSION_KEY) || "null");
-          signedInUser = storedSession ? users.find(user => user.id === storedSession.userId) || null : null;
+          const session = await api("/api/session");
+          signedInUser = session.user;
           if (!signedInUser) {
             $("#app").hidden = true;
-            $("#login-screen").hidden = false;
             return;
           }
-          data.role = signedInUser.role;
-          settingsRoleKey = signedInUser.role;
+          const stored = await api("/api/state");
+          if (stored.data) {
+            applyServerState(stored.data);
+          } else {
+            if (signedInUser.role !== "admin") {
+              throw new Error("Administrator harus login terlebih dahulu untuk menyiapkan data aplikasi.");
+            }
+            let initialData = defaultData;
+            let importLegacy = false;
+            if (stored.isInitial && signedInUser.role === "admin" &&
+                legacyData && ["players", "sessions", "events", "matches"].every(key => Array.isArray(legacyData[key]))) {
+              try {
+                importLegacy = localStorage.getItem(LEGACY_IMPORTED_KEY) !== "1" &&
+                  window.confirm("Ditemukan data VolleyDesk lama di browser ini. Impor data tersebut ke database bersama?");
+              } catch (error) {
+                console.error("Migrasi data lama tidak tersedia.", error);
+              }
+            }
+            if (importLegacy) initialData = legacyData;
+            applyServerState(initialData);
+            await api("/api/state/initialize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ data: initialData })
+            });
+            try { localStorage.setItem(LEGACY_IMPORTED_KEY, "1"); }
+            catch (error) { console.error("Penanda migrasi browser tidak dapat disimpan.", error); }
+          }
+          if (signedInUser.role === "admin") {
+            const result = await api("/api/admin/users");
+            serverUsers = result.users;
+            backupSettings = await api("/api/admin/backup-settings");
+          }
           $("#login-screen").hidden = true;
           $("#app").hidden = false;
           render();
         } catch (error) {
           $("#app").hidden = true;
           $("#login-screen").hidden = false;
+          if (error.status === 401) return;
           const message = $("#login-error");
           message.textContent = error.message || "Login demo tidak dapat dijalankan pada browser ini.";
           message.hidden = false;
