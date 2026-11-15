@@ -621,8 +621,6 @@
           const p = { id, name, position: fd.get("position"), number: Number(fd.get("number")), className: String(fd.get("className")).trim(), gender: String(fd.get("gender") || ""), birthDate: String(fd.get("birthDate") || ""), height: Number(fd.get("height")), weight: Number(fd.get("weight")), spikeReach: Number(fd.get("spikeReach")), blockReach: Number(fd.get("blockReach")), history: [{ date: todayISO(), height: Number(fd.get("height")), weight: Number(fd.get("weight")), spikeReach: Number(fd.get("spikeReach")), blockReach: Number(fd.get("blockReach")) }] };
           data.players.push(p); toast("Pemain berhasil ditambahkan.");
         });
-        const cancel = $("#modal-root [data-close-modal]");
-        if (cancel) cancel.addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function playerAccountModal(playerId) {
         const player = playerById(playerId);
@@ -650,7 +648,6 @@
           toast(account ? "Akun pemain diperbarui." : "Akun login pemain berhasil dibuat.");
           return "skip-persist";
         });
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function teamModal(teamId) {
         const team = teamId == null ? null : (data.teams || []).find(item => Number(item.id) === Number(teamId));
@@ -687,7 +684,6 @@
           }
           toast(team ? "Data tim diperbarui." : "Tim berhasil dibuat.");
         });
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
         const logoInput = $("#team-logo-file");
         if (logoInput) logoInput.addEventListener("change", () => {
           const file = logoInput.files && logoInput.files[0];
@@ -730,7 +726,6 @@
           if (!previous || ["height", "weight", "spikeReach", "blockReach"].some(key => Number(previous[key]) !== record[key])) p.history.push(record);
           toast("Profil dan riwayat antropometri diperbarui.");
         });
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function newSessionModal() {
         showModal("Catat sesi latihan", `<form><div class="form-grid"><div class="field full"><label>Nama sesi</label><input name="title" required maxlength="100" placeholder="Contoh: Latihan teknik & taktik"></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${todayISO()}" required></div><div class="field"><label>Materi latihan (pisahkan koma)</label><input name="drills" placeholder="Drilling passing, spike footwork"></div><div class="field full"><label>Catatan progres / evaluasi sesi</label><textarea name="notes" placeholder="Fokus sesi dan evaluasi umum"></textarea></div>${data.players.map(p => `<div class="field full"><label>Evaluasi individu · ${esc(p.name)}</label><input name="eval_${p.id}" maxlength="240" placeholder="Contoh: platform receive stabil, lanjutkan latihan target"></div>`).join("")}</div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan sesi</button></div></form>`, fd => {
@@ -741,7 +736,6 @@
           data.sessions.unshift(session); selectedSessionId = session.id; pendingAttendance[session.id] = {};
           toast("Sesi latihan berhasil dicatat.");
         });
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function addEventModal(defaultType) {
         const eventDate = selectedCalendarDate || todayISO();
@@ -750,7 +744,6 @@
           data.events.push({ id: Date.now(), title: String(fd.get("title")).trim(), type: fd.get("type"), date: fd.get("date"), time: fd.get("time"), location: String(fd.get("location") || "").trim(), notes: String(fd.get("notes") || "").trim() });
           toast("Agenda berhasil ditambahkan.");
         });
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function addMatchModal() {
         showModal("Buat pertandingan dan pilih roster", `<form><div class="form-grid"><div class="field full"><label>Nama pertandingan</label><input name="name" required maxlength="100" placeholder="Uji Coba vs ..."></div><div class="field"><label>Lawan / turnamen</label><input name="opponent" maxlength="100" placeholder="Nama sekolah/tim"></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${todayISO()}" required></div><div class="field full"><label>Pilih pemain yang bertanding</label><div class="roster-pick">${data.players.map(p => `<label class="roster-option"><input type="checkbox" name="roster" value="${p.id}" checked><span>${esc(p.name)} · #${esc(p.number)} · ${esc(p.position)}</span></label>`).join("")}</div></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan pertandingan</button></div></form>`, fd => {
@@ -759,7 +752,6 @@
           const m = { id: Date.now(), name: String(fd.get("name")).trim(), opponent: String(fd.get("opponent") || "").trim(), date: fd.get("date"), playerIds, stats: [] };
           data.matches.unshift(m); selectedMatchId = m.id; toast("Pertandingan ditambahkan.");
         });
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function addStatModal() {
         const match = data.matches.find(m => Number(m.id) === Number(selectedMatchId)); if (!match) return;
@@ -767,7 +759,6 @@
           match.stats.push({ playerId: Number(fd.get("playerId")), skill: fd.get("skill"), success: Number(fd.get("success")), errors: Number(fd.get("errors")) });
           toast("Statistik aksi tersimpan.");
         });
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function changePasswordModal() {
         showModal("Ubah kata sandi", `<form><div class="form-grid"><div class="field full"><label>Kata sandi saat ini</label><input name="currentPassword" type="password" required autocomplete="current-password"></div><div class="field full"><label>Kata sandi baru (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="newPassword" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div><div class="field full"><label>Ulangi kata sandi baru</label><input name="confirmPassword" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan sandi</button></div></form>`, async fd => {
@@ -787,7 +778,6 @@
           });
           toast("Kata sandi berhasil diubah.");
         });
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function addUserModal() {
         showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role" id="new-user-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join("")}</select></div><div class="field full" id="new-user-player-field" hidden><label>Hubungkan ke biodata pemain</label><select name="playerId" id="new-user-player">${data.players.map(p => `<option value="${p.id}">${esc(p.name)} · #${esc(p.number)} · ${esc(p.className)}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><p class="privacy-note">Akun pemain hanya dapat melihat progres biodata yang dihubungkan. Bagikan kata sandi sementara melalui kanal aman.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
@@ -814,7 +804,6 @@
           roleSelect.addEventListener("change", () => { playerField.hidden = roleSelect.value !== "player"; });
           playerField.hidden = roleSelect.value !== "player";
         }
-        $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function downloadCsv(filename, rows) {
         const csv = rows.map(row => row.map(value => '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"').join(",")).join("\r\n");
