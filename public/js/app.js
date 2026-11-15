@@ -1,6 +1,11 @@
 (function () {
       "use strict";
       const STORAGE_KEY = "volleyDeskDataV1";
+      const DEMO_USERS_KEY = "volleyDeskDemoUsersV1";
+      const DEMO_SESSION_KEY = "volleyDeskDemoSessionV1";
+      const DEMO_ADMIN_EMAIL = "admin@volleydesk.demo";
+      const DEMO_ADMIN_PASSWORD = "VoliDesk!2026";
+      const PASSWORD_HASH_ITERATIONS = 210000;
       const roles = {
         admin: "Admin / Operator",
         principal: "Kepala Sekolah",
@@ -78,24 +83,39 @@
       let pendingAttendance = {};
 
       const $ = (selector, root) => (root || document).querySelector(selector);
-      async function apiRequest(url, options) {
-        const requestOptions = Object.assign({ credentials: "same-origin" }, options || {});
-        requestOptions.headers = Object.assign({ "Content-Type": "application/json" }, requestOptions.headers || {});
-        const response = await fetch(url, requestOptions);
-        let result = null;
-        if (response.status !== 204 && (response.headers.get("content-type") || "").includes("application/json")) {
-          try {
-            result = await response.json();
-          } catch {
-            throw new Error("Respons server tidak valid.");
-          }
+      function bytesToHex(bytes) {
+        return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+      }
+      async function hashPassword(password, salt) {
+        if (!crypto.subtle) throw new Error("Login demo memerlukan browser modern melalui HTTPS atau localhost.");
+        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+        const bits = await crypto.subtle.deriveBits({
+          name: "PBKDF2",
+          salt: Uint8Array.from(salt.match(/.{2}/g), byte => parseInt(byte, 16)),
+          iterations: PASSWORD_HASH_ITERATIONS,
+          hash: "SHA-256"
+        }, key, 256);
+        return bytesToHex(new Uint8Array(bits));
+      }
+      async function makeDemoUser(name, email, role, password) {
+        const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+        return { id: crypto.randomUUID(), name, email, role, salt, passwordHash: await hashPassword(password, salt) };
+      }
+      async function readDemoUsers() {
+        const saved = localStorage.getItem(DEMO_USERS_KEY);
+        if (saved) {
+          const users = JSON.parse(saved);
+          if (!Array.isArray(users)) throw new Error("Data akun demo rusak. Hapus data situs lalu muat ulang.");
+          return users;
         }
-        if (!response.ok) {
-          const error = new Error(result && result.error ? result.error : `Layanan login tidak tersedia (HTTP ${response.status}).`);
-          error.status = response.status;
-          throw error;
-        }
-        return result;
+        const firstAdmin = await makeDemoUser("Administrator", DEMO_ADMIN_EMAIL, "admin", DEMO_ADMIN_PASSWORD);
+        const users = [firstAdmin];
+        localStorage.setItem(DEMO_USERS_KEY, JSON.stringify(users));
+        return users;
+      }
+      function persistDemoUsers(users) {
+        localStorage.setItem(DEMO_USERS_KEY, JSON.stringify(users));
+        serverUsers = users.map(({ id, name, email, role }) => ({ id, name, email, role }));
       }
       const esc = value => String(value == null ? "" : value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
       const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -308,8 +328,8 @@
           <div class="grid dashboard-grid"><section class="card"><div class="card-head"><div><h2 class="card-title">Konfigurasi menu dinamis</h2><p class="card-sub">Centang menu yang dapat dibuka oleh setiap role.</p></div><select class="select-mini" id="settings-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}" ${role === id ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
           <div style="padding:0 19px 18px">${pages.map(p => `<div class="switch-row"><div><div class="note-title">${esc(p.label)}</div><div class="note-copy">Atur visibilitas menu untuk ${esc(roles[role])}</div></div><input class="switch menu-switch" type="checkbox" data-menu="${p.id}" ${allowed.includes(p.id) ? "checked" : ""} ${p.roles.includes(role) ? "" : "disabled"} aria-label="Izinkan menu ${esc(p.label)}"></div>`).join("")}
           <div class="field" style="margin-top:15px"><label for="highlight-select">Menu sorotan / pin role ini</label><select id="highlight-select">${pages.filter(p => allowed.includes(p.id) && p.roles.includes(role)).map(p => `<option value="${p.id}" ${data.highlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div></div></section>
-          <section class="card side-note"><h2 class="card-title">Akun pengguna</h2><p class="card-sub">Akun tersimpan di basis data sekolah</p>${serverUsers.map(u => `<div class="note-item"><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div>`).join("")}
-          <div class="privacy-note">Pengelolaan akun dilakukan oleh server; kata sandi disimpan dalam bentuk hash.</div></section></div>`;
+          <section class="card side-note"><h2 class="card-title">Akun pengguna demo</h2><p class="card-sub">Daftar akun pada browser ini</p>${serverUsers.map(u => `<div class="note-item"><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div>`).join("")}
+          <div class="privacy-note">Login demo hanya membatasi tampilan aplikasi. Akun dan data tersimpan di browser dan tidak aman untuk melindungi data siswa.</div></section></div>`;
       }
       function pageContent() {
         switch (currentPage) {
@@ -430,27 +450,29 @@
             toast("Konfirmasi kata sandi baru tidak sama.");
             return false;
           }
-          await apiRequest("/api/password", {
-            method: "POST",
-            body: JSON.stringify({ currentPassword: fd.get("currentPassword"), newPassword })
-          });
+          const users = await readDemoUsers();
+          const user = users.find(account => account.id === signedInUser.id);
+          if (!user || await hashPassword(String(fd.get("currentPassword")), user.salt) !== user.passwordHash) {
+            toast("Kata sandi saat ini tidak sesuai.");
+            return false;
+          }
+          const replacement = await makeDemoUser(user.name, user.email, user.role, newPassword);
+          user.salt = replacement.salt;
+          user.passwordHash = replacement.passwordHash;
+          persistDemoUsers(users);
           toast("Kata sandi berhasil diubah.");
         });
         $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function addUserModal() {
         showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role">${Object.entries(roles).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal 12 karakter)</label><input name="password" type="password" required minlength="12" autocomplete="new-password"></div></div><p class="privacy-note">Bagikan kata sandi sementara melalui kanal aman dan minta pengguna menggantinya sebelum dipakai bersama.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
-          const result = await apiRequest("/api/admin/users", {
-            method: "POST",
-            body: JSON.stringify({
-              name: String(fd.get("name")).trim(),
-              email: String(fd.get("email")).trim(),
-              role: fd.get("role"),
-              password: fd.get("password")
-            })
-          });
-          serverUsers.push(result.user);
-          toast("Akun berhasil dibuat.");
+          const users = await readDemoUsers();
+          const email = String(fd.get("email")).trim().toLowerCase();
+          if (users.some(user => user.email === email)) throw new Error("Email tersebut sudah terdaftar.");
+          const user = await makeDemoUser(String(fd.get("name")).trim(), email, fd.get("role"), String(fd.get("password")));
+          users.push(user);
+          persistDemoUsers(users);
+          toast("Akun demo berhasil dibuat pada browser ini.");
         });
         $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
@@ -545,10 +567,12 @@
         submitButton.disabled = true;
         submitButton.textContent = "Memeriksa akun...";
         try {
-          await apiRequest("/api/login", {
-            method: "POST",
-            body: JSON.stringify({ email: formData.get("email"), password: formData.get("password") })
-          });
+          const users = await readDemoUsers();
+          const email = String(formData.get("email")).trim().toLowerCase();
+          const user = users.find(account => account.email === email);
+          const passwordHash = user ? await hashPassword(String(formData.get("password")), user.salt) : "";
+          if (!user || passwordHash !== user.passwordHash) throw new Error("Email atau kata sandi tidak sesuai.");
+          sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({ userId: user.id }));
           window.location.reload();
         } catch (error) {
           errorMessage.textContent = error.message || "Tidak dapat masuk. Silakan coba lagi.";
@@ -557,36 +581,33 @@
           submitButton.textContent = "Masuk ke VolleyDesk";
         }
       });
-      $("#logout-button").addEventListener("click", async () => {
-        try {
-          await apiRequest("/api/logout", { method: "POST" });
-          window.location.reload();
-        } catch (error) {
-          toast(error.message || "Tidak dapat keluar. Silakan coba lagi.");
-        }
+      $("#logout-button").addEventListener("click", () => {
+        sessionStorage.removeItem(DEMO_SESSION_KEY);
+        window.location.reload();
       });
       $("#password-button").addEventListener("click", changePasswordModal);
       async function initializeApp() {
         try {
-          const result = await apiRequest("/api/session", { method: "GET" });
-          signedInUser = result.user;
-          data.role = result.user.role;
-          settingsRoleKey = result.user.role;
-          if (result.user.role === "admin") {
-            const accounts = await apiRequest("/api/admin/users", { method: "GET" });
-            serverUsers = accounts.users;
+          const users = await readDemoUsers();
+          serverUsers = users.map(({ id, name, email, role }) => ({ id, name, email, role }));
+          const storedSession = JSON.parse(sessionStorage.getItem(DEMO_SESSION_KEY) || "null");
+          signedInUser = storedSession ? users.find(user => user.id === storedSession.userId) || null : null;
+          if (!signedInUser) {
+            $("#app").hidden = true;
+            $("#login-screen").hidden = false;
+            return;
           }
+          data.role = signedInUser.role;
+          settingsRoleKey = signedInUser.role;
           $("#login-screen").hidden = true;
           $("#app").hidden = false;
           render();
         } catch (error) {
           $("#app").hidden = true;
           $("#login-screen").hidden = false;
-          if (error.status !== 401) {
-            const message = $("#login-error");
-            message.textContent = error.message || "Layanan login tidak tersedia.";
-            message.hidden = false;
-          }
+          const message = $("#login-error");
+          message.textContent = error.message || "Login demo tidak dapat dijalankan pada browser ini.";
+          message.hidden = false;
         }
       }
       initializeApp();
