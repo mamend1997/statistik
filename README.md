@@ -20,6 +20,7 @@ The first browser visit creates a sample administrator:
 - Password: `VoliDesk!2026`
 
 Change the password after signing in using **Ubah sandi**. The browser stores a PBKDF2 hash, but this is still demo-only authentication: browser storage and role checks can be changed by the user and are not suitable for protecting real student data.
+New passwords and temporary user passwords must be at least 6 characters long.
 
 ## Deploy to Railway
 

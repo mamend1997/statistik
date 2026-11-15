@@ -6,6 +6,7 @@
       const DEMO_ADMIN_EMAIL = "admin@volleydesk.demo";
       const DEMO_ADMIN_PASSWORD = "VoliDesk!2026";
       const PASSWORD_HASH_ITERATIONS = 210000;
+      const MIN_PASSWORD_LENGTH = 6;
       const roles = {
         admin: "Admin / Operator",
         principal: "Kepala Sekolah",
@@ -444,8 +445,12 @@
         $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function changePasswordModal() {
-        showModal("Ubah kata sandi", `<form><div class="form-grid"><div class="field full"><label>Kata sandi saat ini</label><input name="currentPassword" type="password" required autocomplete="current-password"></div><div class="field full"><label>Kata sandi baru (minimal 12 karakter)</label><input name="newPassword" type="password" required minlength="12" autocomplete="new-password"></div><div class="field full"><label>Ulangi kata sandi baru</label><input name="confirmPassword" type="password" required minlength="12" autocomplete="new-password"></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan sandi</button></div></form>`, async fd => {
+        showModal("Ubah kata sandi", `<form><div class="form-grid"><div class="field full"><label>Kata sandi saat ini</label><input name="currentPassword" type="password" required autocomplete="current-password"></div><div class="field full"><label>Kata sandi baru (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="newPassword" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div><div class="field full"><label>Ulangi kata sandi baru</label><input name="confirmPassword" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan sandi</button></div></form>`, async fd => {
           const newPassword = String(fd.get("newPassword"));
+          if (newPassword.length < MIN_PASSWORD_LENGTH) {
+            toast(`Kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter.`);
+            return false;
+          }
           if (newPassword !== String(fd.get("confirmPassword"))) {
             toast("Konfirmasi kata sandi baru tidak sama.");
             return false;
@@ -465,11 +470,13 @@
         $("#modal-root [data-close-modal]").addEventListener("click", () => $("#modal-root").innerHTML = "");
       }
       function addUserModal() {
-        showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role">${Object.entries(roles).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal 12 karakter)</label><input name="password" type="password" required minlength="12" autocomplete="new-password"></div></div><p class="privacy-note">Bagikan kata sandi sementara melalui kanal aman dan minta pengguna menggantinya sebelum dipakai bersama.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
+        showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role">${Object.entries(roles).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><p class="privacy-note">Bagikan kata sandi sementara melalui kanal aman dan minta pengguna menggantinya sebelum dipakai bersama.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
           const users = await readDemoUsers();
           const email = String(fd.get("email")).trim().toLowerCase();
           if (users.some(user => user.email === email)) throw new Error("Email tersebut sudah terdaftar.");
-          const user = await makeDemoUser(String(fd.get("name")).trim(), email, fd.get("role"), String(fd.get("password")));
+          const password = String(fd.get("password"));
+          if (password.length < MIN_PASSWORD_LENGTH) throw new Error(`Kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter.`);
+          const user = await makeDemoUser(String(fd.get("name")).trim(), email, fd.get("role"), password);
           users.push(user);
           persistDemoUsers(users);
           toast("Akun demo berhasil dibuat pada browser ini.");
