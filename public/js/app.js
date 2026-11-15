@@ -26,6 +26,7 @@
       const defaultData = {
         theme: "light",
         role: "coach",
+        branding: { logo: "", favicon: "" },
         menuVisibility: {
           admin: pages.filter(p => p.roles.includes("admin")).map(p => p.id),
           principal: ["dashboard", "attendance", "schedule", "reports"],
@@ -74,6 +75,7 @@
       let signedInUser = null;
       let serverUsers = [];
       let playerAccounts = [];
+      let applicationBranding = { logo: "", favicon: "" };
       let data = JSON.parse(JSON.stringify(defaultData));
       let backupSettings = null;
       let legacyData = null;
@@ -127,6 +129,32 @@
       const activeRole = () => data.role || "coach";
       const playerById = id => data.players.find(p => Number(p.id) === Number(id));
       const visiblePages = () => pages.filter(p => p.roles.includes(activeRole()) && (data.menuVisibility[activeRole()] || []).includes(p.id));
+      function applyBranding(branding) {
+        applicationBranding = {
+          logo: branding && branding.logo || "",
+          favicon: branding && branding.favicon || ""
+        };
+        const logo = applicationBranding.logo;
+        document.querySelectorAll(".brand-mark").forEach(mark => {
+          mark.textContent = "";
+          mark.classList.toggle("custom-logo", Boolean(logo));
+          if (!logo) {
+            mark.textContent = "V";
+            return;
+          }
+          const image = document.createElement("img");
+          image.src = logo;
+          image.alt = "Logo VolleyDesk";
+          image.className = "brand-mark-image";
+          mark.appendChild(image);
+        });
+        const favicon = $("#app-favicon");
+        if (favicon) {
+          const icon = applicationBranding.favicon;
+          favicon.href = icon || "/favicon.svg";
+          favicon.type = icon ? icon.slice(5, icon.indexOf(";")) : "image/svg+xml";
+        }
+      }
       function persist() {
         if (activeRole() === "player") return Promise.resolve(true);
         const snapshot = JSON.stringify(data);
@@ -525,7 +553,7 @@
         const backupStatus = backup.lastRunAt
           ? `${esc(backup.lastMessage || "")} · ${esc(new Date(backup.lastRunAt + (backup.lastRunAt.includes("Z") ? "" : "Z")).toLocaleString("id-ID"))}`
           : "Belum ada pengiriman backup.";
-        return `${heading("Pengaturan akses", "Atur akses menu, akun pengguna, dan backup data.", '<button class="button secondary" data-action="add-user">＋ Tambah akun</button>')}
+        return `${heading("Pengaturan aplikasi & akses", "Atur logo aplikasi, hak akses, akun pengguna, dan backup data.", '<button class="button secondary" data-action="add-user">＋ Tambah akun</button>')}
           <div class="grid dashboard-grid"><section class="card"><div class="card-head"><div><h2 class="card-title">Konfigurasi menu dinamis</h2><p class="card-sub">Atur menu samping dan maksimal lima menu navigasi bawah per role.</p></div><select class="select-mini" id="settings-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}" ${role === id ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
           <div style="padding:0 19px 18px">${pages.map(p => `<div class="switch-row"><div><div class="note-title">${esc(p.label)}</div><div class="note-copy">Atur visibilitas menu untuk ${esc(roles[role])}</div></div><input class="switch menu-switch" type="checkbox" data-menu="${p.id}" ${allowed.includes(p.id) ? "checked" : ""} ${p.roles.includes(role) ? "" : "disabled"} aria-label="Izinkan menu ${esc(p.label)}"></div>`).join("")}
           <div class="field" style="margin-top:15px"><label for="highlight-select">Menu sorotan / pin role ini</label><select id="highlight-select">${pages.filter(p => allowed.includes(p.id) && p.roles.includes(role)).map(p => `<option value="${p.id}" ${data.highlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div>
@@ -533,7 +561,14 @@
           ${pages.filter(p => p.roles.includes(role) && allowed.includes(p.id)).map(p => `<label class="switch-row bottom-menu-option"><span>${esc(p.label)}</span><input class="switch bottom-menu-switch" type="checkbox" data-bottom-menu="${p.id}" ${bottomAllowed.includes(p.id) ? "checked" : ""} aria-label="Tampilkan ${esc(p.label)} di navigasi bawah"></label>`).join("")}
           <div class="field" style="margin-top:12px"><label for="bottom-highlight-select">Menu highlight navigasi bawah</label><select id="bottom-highlight-select">${pages.filter(p => bottomAllowed.includes(p.id)).map(p => `<option value="${p.id}" ${data.bottomHighlights && data.bottomHighlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div></div></section>
           <section class="card side-note"><h2 class="card-title">Akun pengguna</h2><p class="card-sub">Akun tersimpan di database VolleyDesk</p>${serverUsers.map(u => `<div class="note-item"><div class="account-row"><div><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}${u.playerId && playerById(u.playerId) ? ` · ${esc(playerById(u.playerId).name)}` : ""}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div><button class="close-x" data-delete-user="${u.id}" aria-label="Hapus akun ${esc(u.name)}" ${Number(u.id) === Number(signedInUser.id) ? "disabled" : ""}>×</button></div></div>`).join("")}
-          <div class="privacy-note">Akses akun diverifikasi oleh server. Berikan akun hanya kepada pengguna yang berwenang.</div></section></div>
+          <div class="privacy-note">Akses akun diverifikasi oleh server. Hanya satu akun admin yang dapat terdaftar.</div></section></div>
+          <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Logo aplikasi & favicon</h2><p class="card-sub">Logo tampil di halaman login dan menu utama; favicon tampil pada tab browser.</p></div></div>
+            <div class="form-grid branding-form">
+              <div class="field"><label for="branding-logo-file">Logo aplikasi · PNG, JPG, atau WebP · maks. 200 KB</label><input id="branding-logo-file" type="file" accept="image/png,image/jpeg,image/webp"><div class="branding-preview">${data.branding.logo ? `<img src="${esc(data.branding.logo)}" alt="Logo aplikasi saat ini">` : '<span>V</span>'}</div><label class="switch-row"><span>Hapus logo aplikasi</span><input id="branding-clear-logo" class="switch" type="checkbox" ${data.branding.logo ? "" : "disabled"}></label></div>
+              <div class="field"><label for="branding-favicon-file">Favicon · PNG, JPG, atau WebP · maks. 100 KB</label><input id="branding-favicon-file" type="file" accept="image/png,image/jpeg,image/webp"><div class="branding-preview favicon-preview">${data.branding.favicon ? `<img src="${esc(data.branding.favicon)}" alt="Favicon saat ini">` : '<span>V</span>'}</div><label class="switch-row"><span>Hapus favicon kustom</span><input id="branding-clear-favicon" class="switch" type="checkbox" ${data.branding.favicon ? "" : "disabled"}></label></div>
+              <div class="field full"><button class="button" data-action="save-branding">Simpan logo & favicon</button><p class="privacy-note">Berkas gambar disimpan bersama data aplikasi dan akan terlihat oleh semua pengguna.</p></div>
+            </div>
+          </section>
           <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Backup dan pemulihan data</h2><p class="card-sub">Database SQLite disimpan di volume persisten Railway.</p></div><span class="tag ${backup.telegramConfigured ? "blue" : "orange"}">${backup.telegramConfigured ? "Telegram siap" : "Telegram belum dikonfigurasi"}</span></div>
             <div class="form-grid" style="padding:0 19px 18px">
               <div class="field"><label for="telegram-bot-token">Telegram Bot Token</label><input id="telegram-bot-token" type="password" autocomplete="new-password" placeholder="${backup.botTokenSaved ? "Token tersimpan — isi hanya untuk mengganti" : "123456789:token-bot"}"></div>
@@ -570,9 +605,45 @@
         $("#crumb-title").textContent = page ? page.label : "Ringkasan";
         $("#content").innerHTML = pageContent();
         document.documentElement.dataset.theme = data.theme || "light";
+        applyBranding(data.branding);
         $("#theme-toggle").textContent = data.theme === "dark" ? "☀" : "☾";
         $("#theme-toggle").title = data.theme === "dark" ? "Gunakan tema terang" : "Gunakan tema gelap";
         bindContentEvents();
+      }
+      function readBrandingImage(file, label, maximumBytes) {
+        if (!file) return Promise.resolve("");
+        if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > maximumBytes) {
+          throw new Error(`${label} harus berupa PNG, JPG, atau WebP maksimal ${Math.round(maximumBytes / 1024)} KB.`);
+        }
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error(`${label} tidak dapat dibaca.`));
+          reader.readAsDataURL(file);
+        });
+      }
+      async function saveBranding() {
+        const logoFile = $("#branding-logo-file").files[0];
+        const faviconFile = $("#branding-favicon-file").files[0];
+        const previous = data.branding;
+        try {
+          const branding = Object.assign({}, previous);
+          if (logoFile) branding.logo = await readBrandingImage(logoFile, "Logo aplikasi", 200 * 1024);
+          else if ($("#branding-clear-logo").checked) branding.logo = "";
+          if (faviconFile) branding.favicon = await readBrandingImage(faviconFile, "Favicon", 100 * 1024);
+          else if ($("#branding-clear-favicon").checked) branding.favicon = "";
+          data.branding = branding;
+          if (!(await persist())) {
+            data.branding = previous;
+            return;
+          }
+          applyBranding(branding);
+          render();
+          toast("Logo aplikasi dan favicon berhasil disimpan.");
+        } catch (error) {
+          data.branding = previous;
+          toast(error.message || "Logo aplikasi dan favicon gagal disimpan.");
+        }
       }
       function showModal(title, body, onSubmit) {
         const root = $("#modal-root");
@@ -780,7 +851,8 @@
         });
       }
       function addUserModal() {
-        showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role" id="new-user-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join("")}</select></div><div class="field full" id="new-user-player-field" hidden><label>Hubungkan ke biodata pemain</label><select name="playerId" id="new-user-player">${data.players.map(p => `<option value="${p.id}">${esc(p.name)} · #${esc(p.number)} · ${esc(p.className)}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><p class="privacy-note">Akun pemain hanya dapat melihat progres biodata yang dihubungkan. Bagikan kata sandi sementara melalui kanal aman.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
+        const adminExists = serverUsers.some(user => user.role === "admin");
+        showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role" id="new-user-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}" ${id === (adminExists ? "coach" : "admin") ? "selected" : ""} ${adminExists && id === "admin" ? "disabled" : ""}>${esc(label)}${adminExists && id === "admin" ? " (sudah ada)" : ""}</option>`).join("")}</select></div><div class="field full" id="new-user-player-field" hidden><label>Hubungkan ke biodata pemain</label><select name="playerId" id="new-user-player">${data.players.map(p => `<option value="${p.id}">${esc(p.name)} · #${esc(p.number)} · ${esc(p.className)}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><p class="privacy-note">${adminExists ? "Akun admin sudah tersedia dan tidak dapat ditambahkan lagi. " : ""}Akun pemain hanya dapat melihat progres biodata yang dihubungkan. Bagikan kata sandi sementara melalui kanal aman.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
           const email = String(fd.get("email")).trim().toLowerCase();
           const password = String(fd.get("password"));
           const role = String(fd.get("role"));
@@ -979,6 +1051,7 @@
         data.bottomHighlights = Object.assign({}, defaultData.bottomHighlights, data.bottomHighlights || {});
         data.targets = data.targets || {};
         data.teams = Array.isArray(data.teams) ? data.teams : [];
+        data.branding = Object.assign({ logo: "", favicon: "" }, applicationBranding, data.branding || {});
         data.menuConfigVersion = 1;
         if (needsTeamMenuMigration) {
           ["admin", "coach"].forEach(role => {
@@ -1100,6 +1173,7 @@
             case "player-import": $("#player-import-file").click(); break;
             case "delete-selected": await deleteSelectedPlayers(); break;
             case "save-backup-settings": await saveBackupSchedule(); break;
+            case "save-branding": await saveBranding(); break;
             case "backup-now": await sendBackupNow(); break;
             case "download-backup": await downloadBackup(); break;
             case "restore-backup": await restoreBackup(); break;
@@ -1206,6 +1280,11 @@
           data.bottomHighlights[settingsRoleKey] = bottomHighlight.value;
           persist(); render(); toast("Highlight navigasi bawah diperbarui.");
         });
+        ["logo", "favicon"].forEach(type => {
+          const input = $(`#branding-${type}-file`);
+          const clear = $(`#branding-clear-${type}`);
+          if (input && clear) input.addEventListener("change", () => { if (input.files.length) clear.checked = false; });
+        });
         const targetPlayer = $("#target-player");
         if (targetPlayer) targetPlayer.addEventListener("change", () => { selectedTargetPlayerId = Number(targetPlayer.value); render(); });
         const targetPeriod = $("#target-period");
@@ -1273,6 +1352,12 @@
       async function initializeApp() {
         $("#login-screen").hidden = false;
         try {
+          try {
+            const branding = await api("/api/branding");
+            applyBranding(branding.branding);
+          } catch (error) {
+            console.error("Pengaturan logo aplikasi tidak dapat dimuat.", error);
+          }
           const session = await api("/api/session");
           signedInUser = session.user;
           if (!signedInUser) {

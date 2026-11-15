@@ -89,6 +89,18 @@ async function initializeDatabase() {
       password_hash TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TRIGGER IF NOT EXISTS app_users_single_admin_insert
+    BEFORE INSERT ON app_users
+    WHEN NEW.role = 'admin' AND EXISTS(SELECT 1 FROM app_users WHERE role = 'admin')
+    BEGIN
+      SELECT RAISE(ABORT, 'Only one admin account is allowed');
+    END;
+    CREATE TRIGGER IF NOT EXISTS app_users_single_admin_update
+    BEFORE UPDATE OF role ON app_users
+    WHEN NEW.role = 'admin' AND EXISTS(SELECT 1 FROM app_users WHERE role = 'admin' AND id != NEW.id)
+    BEGIN
+      SELECT RAISE(ABORT, 'Only one admin account is allowed');
+    END;
     CREATE TABLE IF NOT EXISTS auth_sessions (
       token_hash TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,

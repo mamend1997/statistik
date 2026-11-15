@@ -38,7 +38,9 @@
     .app { min-height: 100vh; display: grid; grid-template-columns: 252px minmax(0, 1fr); }
     .sidebar { background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 23px 15px 16px; position: sticky; top: 0; height: 100vh; }
     .brand { display: flex; gap: 11px; align-items: center; padding: 0 10px 24px; }
-    .brand-mark { width: 39px; height: 39px; border-radius: 13px; display: grid; place-items: center; color: white; font-size: 20px; font-weight: 800; background: linear-gradient(145deg, #446fff, #2449c5); box-shadow: 0 7px 15px #315ee833; }
+    .brand-mark { width: 39px; height: 39px; border-radius: 13px; display: grid; place-items: center; color: white; font-size: 20px; font-weight: 800; background: linear-gradient(145deg, #446fff, #2449c5); box-shadow: 0 7px 15px #315ee833; overflow: hidden; flex: none; }
+    .brand-mark.custom-logo { background: transparent; box-shadow: none; }
+    .brand-mark-image { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
     .brand-name { font-size: 16px; font-weight: 800; letter-spacing: -.3px; }
     .brand-sub { display: block; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .55px; text-transform: uppercase; margin-top: 1px; }
     .side-label { color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: 1.1px; padding: 12px 12px 8px; text-transform: uppercase; }
@@ -219,6 +221,10 @@
     .team-logo-preview-wrap { display: flex; align-items: center; min-height: 56px; }
     .team-clear-logo { display: flex; grid-template-columns: auto 1fr; align-items: center; justify-content: start; gap: 8px; }
     .team-clear-logo input { width: auto; }
+    .branding-form { padding: 0 19px 18px; }
+    .branding-preview { width: 80px; height: 80px; display: grid; place-items: center; margin: 4px 0 8px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); color: var(--blue); font-size: 28px; font-weight: 800; }
+    .branding-preview img { width: 100%; height: 100%; object-fit: contain; }
+    .favicon-preview { width: 48px; height: 48px; border-radius: 12px; font-size: 18px; }
     .target-toolbar { align-items: flex-end; padding: 16px 18px; }
     .target-player-picker, .target-period-picker { display: grid; gap: 5px; }
     .target-player-picker { min-width: min(250px, 100%); }

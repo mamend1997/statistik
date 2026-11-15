@@ -21,6 +21,8 @@ const minimumPasswordLength = 6;
 const sessionDurationMs = 8 * 60 * 60 * 1000;
 const cookieName = "volleydesk.sid";
 const maximumStateBytes = 10 * 1024 * 1024;
+const maximumBrandingLogoBytes = 200 * 1024;
+const maximumFaviconBytes = 100 * 1024;
 const maximumTelegramDocumentBytes = 40 * 1024 * 1024;
 const excelMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const timezone = process.env.BACKUP_TIMEZONE || "Asia/Jakarta";
@@ -166,6 +168,28 @@ function sanitizeTeams(input, players) {
   });
 }
 
+function sanitizeBrandingImage(value, maximumBytes) {
+  if (value == null || value === "") return "";
+  if (typeof value !== "string") throw new Error("Format data aplikasi tidak valid.");
+  const match = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
+  if (!match) throw new Error("Format data aplikasi tidak valid.");
+  const image = Buffer.from(match[1], "base64");
+  if (image.length > maximumBytes || image.toString("base64") !== match[1]) {
+    throw new Error("Format data aplikasi tidak valid.");
+  }
+  return value;
+}
+
+function sanitizeBranding(input, previous, role) {
+  const branding = role === "admin" ? input : previous && previous.branding;
+  if (branding == null) return { logo: "", favicon: "" };
+  if (!isRecord(branding)) throw new Error("Format data aplikasi tidak valid.");
+  return {
+    logo: sanitizeBrandingImage(branding.logo, maximumBrandingLogoBytes),
+    favicon: sanitizeBrandingImage(branding.favicon, maximumFaviconBytes)
+  };
+}
+
 function sanitizeAppState(input, previous, role) {
   if (!isRecord(input) ||
       !Array.isArray(input.players) ||
@@ -205,6 +229,7 @@ function sanitizeAppState(input, previous, role) {
     highlights,
     bottomNav,
     bottomHighlights,
+    branding: sanitizeBranding(input.branding, previous, role),
     players: input.players,
     teams: sanitizeTeams(input.teams, input.players),
     sessions: input.sessions,
@@ -313,6 +338,12 @@ app.get("/api/session", (request, response) => {
   response.json({ user: request.user || null });
 });
 
+app.get("/api/branding", (request, response) => {
+  const state = readAppState().data;
+  response.setHeader("Cache-Control", "no-store");
+  response.json({ branding: state && state.branding || { logo: "", favicon: "" } });
+});
+
 app.post("/api/logout", requireSameOrigin, (request, response, next) => {
   try {
     const token = parseCookie(request, cookieName);
@@ -382,15 +413,28 @@ app.post("/api/admin/users", requireSameOrigin, requireUser, requireAdmin, async
       apiError(response, 409, "Pemain tersebut sudah memiliki akun login.");
       return;
     }
+    if (role === "admin" && Number(database.get("SELECT COUNT(*) AS count FROM app_users WHERE role = 'admin'").count) > 0) {
+      apiError(response, 409, "Akun admin sudah tersedia. Aplikasi hanya mengizinkan satu akun admin.");
+      return;
+    }
     const passwordHash = await bcrypt.hash(password, 12);
     let user;
     database.transaction(() => {
+      if (role === "admin" && Number(database.get("SELECT COUNT(*) AS count FROM app_users WHERE role = 'admin'").count) > 0) {
+        const error = new Error("Akun admin sudah tersedia. Aplikasi hanya mengizinkan satu akun admin.");
+        error.code = "ADMIN_ALREADY_EXISTS";
+        throw error;
+      }
       database.run("INSERT INTO app_users (name, email, role, password_hash) VALUES (?, ?, ?, ?)", [name, email, role === "player" ? "coach" : role, passwordHash]);
       user = database.get("SELECT id, name, email, role FROM app_users WHERE email = ? COLLATE NOCASE", [email]);
       if (role === "player") database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [user.id, playerId]);
     });
     response.status(201).json({ user: { ...user, role, playerId } });
   } catch (error) {
+    if (error.code === "ADMIN_ALREADY_EXISTS") {
+      apiError(response, 409, error.message);
+      return;
+    }
     if (String(error.message).includes("UNIQUE constraint failed: app_users.email")) {
       apiError(response, 409, "Email tersebut sudah terdaftar.");
       return;
@@ -900,6 +944,10 @@ app.post("/api/admin/restore", requireSameOrigin, requireUser, requireAdmin, (re
           : new Date().toISOString()
       };
     });
+    if (users.filter(user => user.role === "admin").length !== 1) {
+      apiError(response, 400, "Berkas backup harus berisi tepat satu akun admin.");
+      return;
+    }
     database.transaction(() => {
       database.run("DELETE FROM auth_sessions");
       database.run("DELETE FROM player_user_links");
