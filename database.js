@@ -131,6 +131,13 @@ async function initializeDatabase() {
       telegram_chat_id TEXT
     );
     INSERT OR IGNORE INTO backup_settings (id) VALUES (1);
+    CREATE TABLE IF NOT EXISTS public_portal (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      token TEXT,
+      enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT OR IGNORE INTO public_portal (id) VALUES (1);
   `);
   const userColumns = all("PRAGMA table_info(app_users)");
   if (!userColumns.some(column => column.name === "avatar_data_url")) {

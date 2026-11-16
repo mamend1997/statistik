@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f5f7fb">
   <title>VolleyDesk — Manajemen Ekstrakurikuler</title>
   <link id="app-favicon" rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="css/styles.css?v=volleydesk-features-10">
+  <link rel="stylesheet" href="css/styles.css?v=volleydesk-features-14">
 </head>
 <body>
   <div class="session-loading" id="session-loading" role="status">Memeriksa sesi...</div>
@@ -24,7 +24,7 @@
         <p class="login-error" id="login-error" role="alert" hidden></p>
         <button class="button login-submit" id="login-submit" type="submit">Masuk ke VolleyDesk</button>
       </form>
-      <p class="login-help">Akun dan data tersimpan di database VolleyDesk. Hubungi administrator jika belum memiliki akun.</p>
+      <p class="login-help" id="login-help">Akun dan data tersimpan di database VolleyDesk. Hubungi administrator jika belum memiliki akun.</p>
     </div>
   </section>
   <div class="app" id="app" hidden>
@@ -43,7 +43,7 @@
       <header class="topbar">
         <div style="display:flex;align-items:center;gap:12px">
           <button class="icon-button mobile-menu" id="menu-toggle" aria-label="Buka menu">☰</button>
-          <div class="crumb">VolleyDesk <span style="padding:0 6px;color:var(--line)">/</span> <strong id="crumb-title">Ringkasan</strong></div>
+          <div class="crumb"><span id="crumb-brand">VolleyDesk</span> <span style="padding:0 6px;color:var(--line)">/</span> <strong id="crumb-title">Ringkasan</strong></div>
         </div>
         <div class="top-actions">
           <span class="tag blue" id="top-role"></span>
@@ -58,6 +58,6 @@
   </div>
   <div class="toast" id="toast" role="status"></div>
   <div id="modal-root"></div>
-  <script src="js/app.js?v=volleydesk-features-18" defer></script>
+  <script src="js/app.js?v=volleydesk-features-26" defer></script>
 </body>
 </html>

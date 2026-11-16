@@ -165,7 +165,6 @@
     .player-detail-actions { justify-content: flex-start; margin: 0 0 16px; }
     .player-history-card { margin-bottom: 16px; overflow: hidden; }
     .player-match-stats { min-width: 1000px; }
-    .anthropometry-table table { min-width: 650px; }
     .live-roster { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 14px; }
     .live-player { padding: 14px; min-width: 0; }
     .live-skills { display: grid; gap: 8px; margin-top: 13px; }
@@ -191,28 +190,89 @@
     .roster-option:last-child { border-bottom: 0; }
     .roster-option input { width: 16px; height: 16px; margin: 0; justify-self: center; accent-color: var(--blue); }
     .roster-option span { min-width: 0; }
-    .calendar-card { overflow: hidden; }
-    .calendar-toolbar { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 17px; }
-    .calendar-toolbar > strong { font-size: 15px; text-transform: capitalize; }
-    .calendar-toolbar > div { display: flex; align-items: center; gap: 7px; }
+    .calendar-card { overflow: hidden; padding-bottom: 4px; }
+    .calendar-toolbar { min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 17px; }
+    .calendar-toolbar > strong { flex: 1; text-align: center; font-size: 16px; text-transform: capitalize; }
+    .calendar-toolbar-controls { display: flex; align-items: center; gap: 8px; }
+    .calendar-view-toggle { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+    .calendar-view-toggle .button { box-shadow: none; }
     .calendar-weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
-    .calendar-weekdays { padding: 0 12px; border-top: 1px solid var(--line); background: var(--surface-2); }
-    .calendar-weekdays span { padding: 9px 2px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 750; }
-    .calendar-grid { gap: 1px; padding: 1px 12px 12px; background: var(--line); }
-    .calendar-day { min-width: 0; min-height: 75px; padding: 7px; border: 0; border-radius: 0; background: var(--surface); color: var(--ink); display: flex; flex-direction: column; align-items: flex-start; gap: 5px; text-align: left; }
-    .calendar-day.is-empty { background: var(--surface-2); }
-    .calendar-day:not(.is-empty):hover { background: var(--blue-soft); }
-    .calendar-day.selected { box-shadow: inset 0 0 0 2px var(--blue); background: var(--blue-soft); }
-    .calendar-day.today .calendar-day-number { color: var(--blue); font-weight: 850; }
-    .calendar-day-number { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 8px; font-size: 11px; font-weight: 650; }
-    .calendar-day-dots { display: flex; gap: 4px; min-height: 7px; }
+    .calendar-weekdays { padding: 0 14px; }
+    .calendar-weekdays span { padding: 8px 2px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 750; }
+    .calendar-grid { gap: 7px; padding: 6px 14px 16px; }
+    .calendar-day { min-width: 0; min-height: 82px; padding: 7px 4px; border: 1px solid transparent; border-radius: 13px; background: var(--surface); color: var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; text-align: center; transition: background .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
+    .calendar-day.is-empty { background: transparent; }
+    .calendar-day:not(.is-empty):hover { background: var(--blue-soft); border-color: var(--line); transform: translateY(-1px); box-shadow: var(--shadow); }
+    .calendar-day.selected { border-color: var(--blue); background: var(--blue-soft); }
+    .calendar-day.today .calendar-day-number { color: white; background: var(--blue); font-weight: 850; }
+    .calendar-day-number { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; font-size: 12px; font-weight: 650; }
+    .calendar-day-dots { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 7px; }
     .calendar-dot { width: 7px; height: 7px; display: inline-block; flex: none; border-radius: 50%; background: var(--green); }
     .calendar-dot.blue { background: var(--blue); }
     .calendar-dot.orange { background: var(--orange); }
     .calendar-day-count { max-width: 100%; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .calendar-legend { display: flex; flex-wrap: wrap; gap: 13px; padding: 0 18px 13px; color: var(--muted); font-size: 10px; }
+    .calendar-year-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 8px 14px 16px; }
+    .calendar-month-card { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface-2); }
+    .calendar-month-card h3 { margin: 0 0 7px; text-align: center; font-size: 12px; font-weight: 750; }
+    .calendar-month-card h3 button { border: 0; border-radius: 8px; padding: 3px 8px; background: transparent; color: var(--ink); font: inherit; text-transform: capitalize; cursor: pointer; }
+    .calendar-month-card h3 button:hover { color: var(--blue); background: var(--blue-soft); }
+    .calendar-mini-weekdays, .calendar-mini-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+    .calendar-mini-weekdays span { padding: 3px 0; color: var(--muted); text-align: center; font-size: 8px; font-weight: 750; }
+    .calendar-mini-grid { margin-top: 3px; }
+    .calendar-day-mini { min-height: 34px; padding: 2px 0; border-radius: 8px; gap: 1px; }
+    .calendar-day-mini .calendar-day-number { width: 20px; height: 20px; border-radius: 7px; font-size: 9px; }
+    .calendar-day-mini .calendar-day-dots { min-height: 5px; gap: 2px; }
+    .calendar-day-mini .calendar-dot { width: 4px; height: 4px; }
+    .calendar-legend { display: flex; flex-wrap: wrap; gap: 13px; padding: 0 18px 14px; color: var(--muted); font-size: 10px; }
     .calendar-legend span { display: inline-flex; align-items: center; gap: 5px; }
     .team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; align-items: start; }
+    .anthropometry-table table { min-width: 760px; }
+    .dashboard-charts { grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); margin: 16px 0; align-items: stretch; }
+    .performance-chart { display: grid; gap: 12px; padding: 8px 19px 19px; }
+    .performance-row { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(90px, 2fr) 42px; align-items: center; gap: 10px; }
+    .performance-player { overflow: hidden; color: var(--ink); font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .performance-track, .skill-total-track { overflow: hidden; border-radius: 20px; background: var(--line); }
+    .performance-track { height: 9px; }
+    .performance-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #315ee8, #67a1ff); }
+    .performance-row strong { text-align: right; font-size: 11px; }
+    .skill-total-chart { min-height: 200px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; gap: 16px; padding: 18px 20px 20px; }
+    .skill-total-column { height: 160px; min-width: 0; display: grid; grid-template-rows: 18px 1fr 22px; justify-items: center; gap: 5px; }
+    .skill-total-column strong { font-size: 11px; }
+    .skill-total-track { width: min(42px, 100%); height: 100%; display: flex; align-items: end; border-radius: 9px; }
+    .skill-total-track i { display: block; width: 100%; min-height: 2px; border-radius: 8px; }
+    .skill-total-column > span { max-width: 100%; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .physical-trend-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+    .trend-chart-card { min-width: 0; overflow: hidden; }
+    .trend-current { color: var(--blue); font-size: 12px; white-space: nowrap; }
+    .trend-chart-scroll { overflow-x: auto; padding: 0 8px 8px; }
+    .trend-chart { display: block; width: 100%; min-width: 300px; height: auto; overflow: visible; }
+    .trend-gridline { stroke: var(--line); stroke-width: 1; }
+    .trend-axis-label, .trend-date-label { fill: var(--muted); font-family: inherit; font-size: 9px; }
+    .trend-date-label { font-size: 8px; }
+    .trend-line { fill: none; stroke: var(--blue); stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; }
+    .trend-point { fill: var(--surface); stroke: var(--blue); stroke-width: 3; }
+    .strategy-editor { overflow: hidden; }
+    .strategy-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 12px; padding: 16px 19px 4px; }
+    .strategy-toolbar .field { width: min(360px, 100%); }
+    .strategy-toolbar select, .strategy-options select { border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); padding: 9px 10px; font-size: 12px; }
+    .strategy-meta { padding: 12px 19px; }
+    .strategy-lineup-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 19px 12px; }
+    .volleyball-court { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 19px; padding: 12px; border: 2px solid #fff; outline: 1px solid var(--line); border-radius: 15px; background: linear-gradient(180deg, #dff5e8 0%, #cdebdc 100%); }
+    .lineup-slot { min-height: 126px; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 9px 7px; border: 1px dashed #7ebc99; border-radius: 12px; background: #ffffffc9; text-align: center; }
+    .lineup-position-number { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--blue); color: #fff; font-size: 11px; font-weight: 800; }
+    .lineup-position-label { color: var(--muted); font-size: 9px; font-weight: 700; }
+    .lineup-chip, .lineup-roster-chip { max-width: 100%; padding: 5px 8px; border-radius: 9px; background: var(--blue-soft); color: var(--blue); font-size: 10px; font-weight: 750; overflow-wrap: anywhere; cursor: grab; }
+    .lineup-chip:active, .lineup-roster-chip:active { cursor: grabbing; }
+    .lineup-empty-label { color: var(--muted); font-size: 9px; }
+    .lineup-slot select { width: 100%; max-width: 170px; min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 10px; }
+    .strategy-roster { padding: 16px 19px 4px; }
+    .strategy-section-title { display: block; margin-bottom: 9px; font-size: 11px; }
+    .lineup-roster { display: flex; flex-wrap: wrap; gap: 7px; }
+    .lineup-roster-chip { background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); }
+    .lineup-roster-chip small { color: var(--muted); font-size: 9px; }
+    .strategy-options { padding: 16px 19px; }
+    .strategy-options textarea { min-height: 88px; }
+    .strategy-save { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 19px 18px; border-top: 1px solid var(--line); }
     .team-card { padding: 16px; min-width: 0; }
     .team-card-head, .team-identity, .team-actions { display: flex; align-items: center; gap: 10px; }
     .team-card-head { justify-content: space-between; }
@@ -233,6 +293,12 @@
     .branding-form { padding: 0 19px 18px; }
     .branding-preview { width: 80px; height: 80px; display: grid; place-items: center; margin: 4px 0 8px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); color: var(--blue); font-size: 28px; font-weight: 800; }
     .branding-preview img { width: 100%; height: 100%; object-fit: contain; }
+    .letterhead-preview { min-height: 120px; padding: 18px; border: 1px dashed var(--line); border-radius: 12px; background: var(--surface-2); color: #17233b; }
+    .letterhead-layout { display: flex; align-items: center; gap: 14px; min-height: 56px; }
+    .letterhead-logo { height: auto; max-height: 80px; object-fit: contain; }
+    .letterhead-copy { min-width: 0; }
+    .letterhead-title, .letterhead-subtitle { overflow-wrap: anywhere; line-height: 1.35; }
+    .letterhead-rule { margin: 12px 0 0; border: 0; border-top: 2px solid #263248; }
     .favicon-preview { width: 48px; height: 48px; border-radius: 12px; font-size: 18px; }
     .target-toolbar { align-items: flex-end; padding: 16px 18px; }
     .target-player-picker, .target-period-picker { display: grid; gap: 5px; }
@@ -290,6 +356,9 @@
     @media (max-width: 1050px) {
       .metrics { grid-template-columns: repeat(2, 1fr); }
       .dashboard-grid { grid-template-columns: 1fr; }
+      .dashboard-charts { grid-template-columns: 1fr; }
+      .physical-trend-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .calendar-year-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 760px) {
       .app { display: block; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
@@ -311,6 +380,13 @@
       #top-role { max-width: 95px; }
       .form-grid { grid-template-columns: 1fr; }
       .field.full { grid-column: auto; }
+      .physical-trend-grid { grid-template-columns: minmax(0, 1fr); }
+      .strategy-toolbar, .strategy-lineup-head { align-items: stretch; flex-direction: column; }
+      .strategy-toolbar .field { width: 100%; }
+      .volleyball-court { gap: 5px; margin: 0 10px; padding: 7px; }
+      .lineup-slot { min-height: 120px; padding: 7px 4px; }
+      .strategy-meta, .strategy-options { padding-right: 14px; padding-left: 14px; }
+      .strategy-save { align-items: stretch; flex-direction: column; }
       .hide-mobile { display: none; }
       .toolbar, .attendance-head { flex-wrap: wrap; align-items: flex-start; }
       .toolbar > *, .attendance-head > * { min-width: 0; max-width: 100%; }
@@ -321,10 +397,20 @@
       .inline-form { flex-wrap: wrap; }
       .target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; }
       .target-player-picker { min-width: 0; }
-      .calendar-grid { padding: 1px 6px 8px; }
-      .calendar-day { min-height: 59px; padding: 5px 3px; align-items: center; gap: 3px; }
+      .calendar-toolbar { flex-wrap: wrap; padding: 10px 12px; }
+      .calendar-toolbar > strong { text-align: center; }
+      .calendar-toolbar-controls { width: 100%; justify-content: space-between; gap: 5px; }
+      .calendar-grid { gap: 4px; padding: 5px 8px 12px; }
+      .calendar-day { min-height: 59px; padding: 4px 2px; gap: 3px; border-radius: 10px; }
       .calendar-day-count { display: none; }
-      .calendar-day-number { width: 22px; height: 22px; }
+      .calendar-day-number { width: 24px; height: 24px; }
+      .calendar-year-grid { gap: 8px; padding: 8px; }
+      .calendar-month-card { padding: 6px; border-radius: 12px; }
+      .calendar-month-card h3 { margin-bottom: 4px; font-size: 11px; }
+      .calendar-mini-weekdays, .calendar-mini-grid { gap: 1px; }
+      .calendar-day-mini { min-height: 30px; border-radius: 6px; }
+      .calendar-day-mini .calendar-day-number { width: 18px; height: 18px; border-radius: 6px; font-size: 8px; }
+      .calendar-day-mini .calendar-dot { width: 3px; height: 3px; }
       .team-grid { grid-template-columns: minmax(0, 1fr); }
       .live-roster { grid-template-columns: minmax(0, 1fr); padding: 10px; }
       .bottom-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 6px 5px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); box-shadow: 0 -7px 22px #17233b14; }
@@ -353,4 +439,27 @@
       .target-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
       .target-card { padding: 11px; }
       .toolbar-actions { grid-template-columns: 1fr 1fr; }
+    }
+    .public-portal-share { display: grid; grid-template-columns: minmax(0, 1fr) 170px; align-items: center; gap: 20px; padding: 0 19px 16px; }
+    .public-portal-share .field input { width: 100%; }
+    .public-portal-share .toolbar-actions { margin-top: 9px; }
+    .public-portal-qr { display: grid; justify-items: center; gap: 7px; color: var(--muted); font-size: 10px; text-align: center; }
+    .public-portal-qr img { width: 150px; height: 150px; padding: 7px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+    .public-portal-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 19px 12px; }
+    .public-portal-empty p { margin: 0; color: var(--muted); font-size: 12px; }
+    .access-level-list { display: grid; gap: 7px; margin-top: 13px; }
+    .access-level-row { display: grid; grid-template-columns: minmax(110px, .7fr) minmax(0, 1.7fr); align-items: center; gap: 10px; padding: 9px; border: 1px solid var(--line); border-radius: 11px; }
+    .access-level-name { font-size: 11px; font-weight: 750; }
+    .access-level-options { display: flex; flex-wrap: wrap; gap: 5px; }
+    .access-level-option { position: relative; display: inline-flex; cursor: pointer; }
+    .access-level-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .access-level-option span { padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface-2); font-size: 10px; font-weight: 700; }
+    .access-level-option.selected span { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
+    .access-level-option input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
+    .access-level-option input:disabled + span { cursor: not-allowed; opacity: .7; }
+    @media (max-width: 760px) {
+      .public-portal-share { grid-template-columns: minmax(0, 1fr); }
+      .public-portal-qr { justify-items: start; text-align: left; }
+      .public-portal-empty { align-items: flex-start; flex-direction: column; }
+      .access-level-row { grid-template-columns: minmax(0, 1fr); }
     }

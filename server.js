@@ -8,6 +8,7 @@ const bcrypt = require("bcryptjs");
 const ExcelJS = require("exceljs");
 const express = require("express");
 const { rateLimit } = require("express-rate-limit");
+const QRCode = require("qrcode");
 const { initializeDatabase } = require("./database");
 
 const app = express();
@@ -16,7 +17,42 @@ const publicDirectory = path.resolve(__dirname, "public");
 const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const validPlayerUsername = /^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$/;
 const validRoles = new Set(["admin", "principal", "curriculum", "coach", "player"]);
-const validMenus = new Set(["dashboard", "players", "teams", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets", "settings"]);
+const validMenus = new Set(["dashboard", "players", "teams", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets", "strategy", "settings"]);
+const accessLevels = new Set(["view", "edit", "full"]);
+const dataMenuSections = [
+  { section: "players", menu: "players" },
+  { section: "teams", menu: "teams" },
+  { section: "sessions", menu: "attendance" },
+  { section: "events", menu: "schedule" },
+  { section: "matches", menu: "training" },
+  { section: "strategyBoards", menu: "strategy" },
+  { section: "targets", menu: "targets" }
+];
+const defaultBranding = {
+  logo: "",
+  favicon: "",
+  appName: "VolleyDesk",
+  appSubtitle: "Team management",
+  tabTitle: "VolleyDesk — Manajemen Ekstrakurikuler",
+  letterheadTitle: "EKSTRAKURIKULER BOLA VOLI",
+  letterheadSubtitle: "Manajemen dan Statistik Pemain",
+  logoWidth: 88,
+  titleFontSize: 20,
+  subtitleFontSize: 12,
+  fontFamily: "Arial, sans-serif",
+  titleBold: true,
+  titleItalic: false,
+  subtitleBold: false,
+  subtitleItalic: false,
+  letterheadLine: true
+};
+const brandingFontFamilies = new Set([
+  "Arial, sans-serif",
+  "\"Times New Roman\", serif",
+  "Georgia, serif",
+  "Verdana, sans-serif",
+  "Tahoma, sans-serif"
+]);
 const minimumPasswordLength = 6;
 const sessionDurationMs = 30 * 24 * 60 * 60 * 1000;
 const cookieName = "volleydesk.sid";
@@ -120,6 +156,69 @@ function requireOperator(request, response, next) {
   next();
 }
 
+function requireMenuAction(menu, action) {
+  return (request, response, next) => {
+    if (!request.user) {
+      apiError(response, 401, "Silakan masuk terlebih dahulu.");
+      return;
+    }
+    if (request.user.role === "admin") {
+      next();
+      return;
+    }
+    const state = readAppState().data;
+    const visible = Boolean(state && state.menuVisibility && state.menuVisibility[request.user.role] &&
+      state.menuVisibility[request.user.role].includes(menu));
+    const level = state && state.accessPermissions && state.accessPermissions[request.user.role] &&
+      state.accessPermissions[request.user.role][menu] || "view";
+    const allowed = action === "view" ? visible :
+      action === "delete" ? visible && level === "full" :
+        visible && (level === "edit" || level === "full");
+    if (!allowed) {
+      apiError(response, 403, `Akses ${action === "view" ? "lihat" : action === "delete" ? "hapus" : "ubah"} menu ${menu} tidak diizinkan.`);
+      return;
+    }
+    next();
+  };
+}
+
+function defaultAccessLevel(role) {
+  return role === "admin" || role === "coach" ? "full" : "view";
+}
+
+function assertStateAccess(nextState, previousState, role) {
+  if (role === "admin") return;
+  if (role === "player") {
+    const error = new Error("Akun pemain tidak dapat mengubah data bersama.");
+    error.status = 403;
+    throw error;
+  }
+  for (const { section, menu } of dataMenuSections) {
+    const before = previousState[section] == null ? (section === "targets" ? {} : []) : previousState[section];
+    const after = nextState[section] == null ? (section === "targets" ? {} : []) : nextState[section];
+    if (JSON.stringify(before) === JSON.stringify(after)) continue;
+    const level = previousState.accessPermissions && previousState.accessPermissions[role] &&
+      previousState.accessPermissions[role][menu] || "view";
+    const visible = (previousState.menuVisibility && previousState.menuVisibility[role] || []).includes(menu);
+    if (!visible || level === "view") {
+      const error = new Error(`Akses ubah data pada menu ${menu} tidak diizinkan.`);
+      error.status = 403;
+      throw error;
+    }
+    if (level !== "full") {
+      const beforeItems = Array.isArray(before) ? before : Object.keys(before);
+      const afterItems = Array.isArray(after) ? after : Object.keys(after);
+      const remainingIds = new Set(afterItems.map(item => String(Array.isArray(after) ? item.id : item)));
+      const removed = beforeItems.some(item => !remainingIds.has(String(Array.isArray(before) ? item.id : item)));
+      if (removed) {
+        const error = new Error(`Hak hapus pada menu ${menu} belum diberikan.`);
+        error.status = 403;
+        throw error;
+      }
+    }
+  }
+}
+
 function setSessionCookie(response, token) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   response.setHeader("Set-Cookie", `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionDurationMs / 1000}${secure}`);
@@ -133,6 +232,25 @@ function clearSessionCookie(response) {
 function readAppState() {
   const row = database.get("SELECT state_json, is_initial FROM app_state WHERE id = 1");
   return row ? { data: JSON.parse(row.state_json), isInitial: Boolean(row.is_initial) } : { data: null, isInitial: true };
+}
+
+function validPortalToken(value) {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+function validBirthDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day && value <= new Date().toISOString().slice(0, 10);
+}
+
+function publicPortalMatches(token) {
+  return validPortalToken(token) && Boolean(database.get(
+    "SELECT id FROM public_portal WHERE id = 1 AND enabled = 1 AND token = ?",
+    [token]
+  ));
 }
 
 function isRecord(value) {
@@ -183,11 +301,37 @@ function sanitizeBrandingImage(value, maximumBytes) {
 
 function sanitizeBranding(input, previous, role) {
   const branding = role === "admin" ? input : previous && previous.branding;
-  if (branding == null) return { logo: "", favicon: "" };
+  if (branding == null) return { ...defaultBranding };
   if (!isRecord(branding)) throw new Error("Format data aplikasi tidak valid.");
+  const stringValue = (key, maximumLength) => {
+    const value = branding[key] == null ? defaultBranding[key] : branding[key];
+    if (typeof value !== "string" || value.length > maximumLength) throw new Error("Format data aplikasi tidak valid.");
+    return value.trim();
+  };
+  const numericValue = (key, minimum, maximum) => {
+    const value = branding[key] == null ? defaultBranding[key] : Number(branding[key]);
+    if (!Number.isInteger(value) || value < minimum || value > maximum) throw new Error("Format data aplikasi tidak valid.");
+    return value;
+  };
+  const fontFamily = branding.fontFamily == null ? defaultBranding.fontFamily : branding.fontFamily;
+  if (typeof fontFamily !== "string" || !brandingFontFamilies.has(fontFamily)) throw new Error("Format data aplikasi tidak valid.");
   return {
     logo: sanitizeBrandingImage(branding.logo, maximumBrandingLogoBytes),
-    favicon: sanitizeBrandingImage(branding.favicon, maximumFaviconBytes)
+    favicon: sanitizeBrandingImage(branding.favicon, maximumFaviconBytes),
+    appName: stringValue("appName", 80) || defaultBranding.appName,
+    appSubtitle: stringValue("appSubtitle", 160),
+    tabTitle: stringValue("tabTitle", 120) || defaultBranding.tabTitle,
+    letterheadTitle: stringValue("letterheadTitle", 100),
+    letterheadSubtitle: stringValue("letterheadSubtitle", 160),
+    logoWidth: numericValue("logoWidth", 24, 260),
+    titleFontSize: numericValue("titleFontSize", 12, 42),
+    subtitleFontSize: numericValue("subtitleFontSize", 8, 24),
+    fontFamily,
+    titleBold: branding.titleBold == null ? defaultBranding.titleBold : branding.titleBold === true,
+    titleItalic: branding.titleItalic == null ? defaultBranding.titleItalic : branding.titleItalic === true,
+    subtitleBold: branding.subtitleBold == null ? defaultBranding.subtitleBold : branding.subtitleBold === true,
+    subtitleItalic: branding.subtitleItalic == null ? defaultBranding.subtitleItalic : branding.subtitleItalic === true,
+    letterheadLine: branding.letterheadLine !== false
   };
 }
 
@@ -197,6 +341,8 @@ function sanitizeAppState(input, previous, role) {
       !Array.isArray(input.sessions) ||
       !Array.isArray(input.events) ||
       !Array.isArray(input.matches) ||
+      (input.strategyBoards != null && (!Array.isArray(input.strategyBoards) || input.strategyBoards.length > 5000 ||
+        input.strategyBoards.some(item => !isRecord(item)))) ||
       [input.players, input.sessions, input.events, input.matches].some(items =>
         items.length > 5000 || items.some(item => !isRecord(item)))) {
     throw new Error("Format data aplikasi tidak valid.");
@@ -207,10 +353,12 @@ function sanitizeAppState(input, previous, role) {
   const sourceBottomNav = role === "admin" ? input.bottomNav : previous && previous.bottomNav;
   const sourceBottomHighlights = role === "admin" ? input.bottomHighlights : previous && previous.bottomHighlights;
   const menuConfigVersion = role === "admin" ? input.menuConfigVersion : previous && previous.menuConfigVersion;
+  const sourceAccessPermissions = role === "admin" ? input.accessPermissions : previous && previous.accessPermissions;
   const menuVisibility = {};
   const highlights = {};
   const bottomNav = {};
   const bottomHighlights = {};
+  const accessPermissions = {};
   for (const roleName of validRoles) {
     const configured = sourceMenus && Array.isArray(sourceMenus[roleName]) ? sourceMenus[roleName] : [];
     menuVisibility[roleName] = Array.from(new Set(configured.filter(menu => validMenus.has(menu))));
@@ -222,6 +370,15 @@ function sanitizeAppState(input, previous, role) {
     bottomHighlights[roleName] = bottomNav[roleName].includes(bottomHighlight)
       ? bottomHighlight
       : bottomNav[roleName][0] || "";
+    const configuredPermissions = sourceAccessPermissions && sourceAccessPermissions[roleName];
+    accessPermissions[roleName] = {};
+    for (const menu of validMenus) {
+      const configuredLevel = configuredPermissions && configuredPermissions[menu];
+        accessPermissions[roleName][menu] = roleName === "admin"
+          ? "full"
+          : roleName === "player" ? "view"
+            : accessLevels.has(configuredLevel) ? configuredLevel : defaultAccessLevel(roleName);
+    }
   }
   const clean = {
     theme: input.theme === "dark" ? "dark" : "light",
@@ -230,12 +387,14 @@ function sanitizeAppState(input, previous, role) {
     highlights,
     bottomNav,
     bottomHighlights,
+    accessPermissions,
     branding: sanitizeBranding(input.branding, previous, role),
     players: input.players,
     teams: sanitizeTeams(input.teams, input.players),
     sessions: input.sessions,
     events: input.events,
     matches: input.matches,
+    strategyBoards: Array.isArray(input.strategyBoards) ? input.strategyBoards : [],
     targets: isRecord(input.targets) ? input.targets : {}
   };
   if (Buffer.byteLength(JSON.stringify(clean), "utf8") > maximumStateBytes) {
@@ -263,6 +422,7 @@ function writeAppState(input, role, initialOnly) {
     }
   }
   const state = sanitizeAppState(input, current.data, role);
+  if (current.data) assertStateAccess(state, current.data, role);
   database.transaction(() => {
     database.run(
       `INSERT INTO app_state (id, state_json, is_initial, updated_at) VALUES (1, ?, 0, CURRENT_TIMESTAMP)
@@ -286,6 +446,20 @@ const passwordLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { error: "Terlalu banyak percobaan ubah kata sandi. Coba lagi beberapa saat." }
+});
+const publicPortalSearchLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 120,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak pencarian. Coba lagi beberapa saat." }
+});
+const publicPortalStatsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak percobaan. Coba lagi beberapa saat." }
 });
 
 app.get("/health", (request, response) => {
@@ -359,7 +533,109 @@ app.get("/api/session", (request, response) => {
 app.get("/api/branding", (request, response) => {
   const state = readAppState().data;
   response.setHeader("Cache-Control", "no-store");
-  response.json({ branding: state && state.branding || { logo: "", favicon: "" } });
+  response.json({ branding: state && state.branding || { ...defaultBranding } });
+});
+
+app.get("/api/public-portal/:token/search", publicPortalSearchLimiter, (request, response) => {
+  response.setHeader("Cache-Control", "no-store");
+  if (!publicPortalMatches(request.params.token)) {
+    apiError(response, 404, "Portal publik tidak ditemukan.");
+    return;
+  }
+  const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
+  if (query.length < 3 || query.length > 80) {
+    response.json({ names: [] });
+    return;
+  }
+  const state = readAppState().data;
+  const normalizedQuery = query.normalize("NFKC").toLocaleLowerCase("id-ID");
+  const names = state
+    ? Array.from(new Set(state.players
+      .filter(player => typeof player.name === "string" && validBirthDate(player.birthDate) &&
+        player.name.trim().normalize("NFKC").toLocaleLowerCase("id-ID").startsWith(normalizedQuery))
+      .map(player => player.name.trim())
+      .filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "id"))
+      .slice(0, 10)
+    : [];
+  response.json({ names });
+});
+
+app.post("/api/public-portal/:token/statistics", requireSameOrigin, publicPortalStatsLimiter, (request, response) => {
+  response.setHeader("Cache-Control", "no-store");
+  if (!publicPortalMatches(request.params.token)) {
+    apiError(response, 404, "Portal publik tidak ditemukan.");
+    return;
+  }
+  const body = isRecord(request.body) ? request.body : {};
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const birthDate = typeof body.birthDate === "string" ? body.birthDate : "";
+  if (!name || name.length > 80 || !validBirthDate(birthDate)) {
+    apiError(response, 400, "Isi nama pemain dan tanggal lahir yang valid.");
+    return;
+  }
+  const state = readAppState().data;
+  const players = state ? state.players.filter(player =>
+    typeof player.name === "string" &&
+    player.name.trim().normalize("NFKC").toLocaleLowerCase("id-ID") === name.normalize("NFKC").toLocaleLowerCase("id-ID") &&
+    player.birthDate === birthDate
+  ) : [];
+  if (players.length !== 1) {
+    apiError(response, 404, "Nama atau tanggal lahir tidak sesuai.");
+    return;
+  }
+  const player = players[0];
+  const skills = [
+    { key: "Ace", label: "Ace" },
+    { key: "Attack", label: "Serangan" },
+    { key: "Block", label: "Blok" },
+    { key: "Serve", label: "Servis" },
+    { key: "Receive", label: "Receive" }
+  ];
+  const matches = state.matches
+    .filter(match =>
+      (Array.isArray(match.playerIds) && match.playerIds.some(id => Number(id) === Number(player.id))) ||
+      (Array.isArray(match.stats) && match.stats.some(stat => Number(stat.playerId) === Number(player.id)))
+    )
+    .slice()
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .map(match => {
+      const stats = (Array.isArray(match.stats) ? match.stats : []).filter(stat => Number(stat.playerId) === Number(player.id));
+      const techniques = skills.map(skill => {
+        const values = stats.filter(stat => stat.skill === skill.key);
+        const sum = key => values.reduce((total, stat) => {
+          const value = Number(stat[key]);
+          return total + (Number.isFinite(value) && value > 0 ? Math.floor(value) : 0);
+        }, 0);
+        return {
+          name: skill.label,
+          success: sum("success"),
+          errors: sum("errors")
+        };
+      });
+      return {
+        name: typeof match.name === "string" ? match.name : "",
+        opponent: typeof match.opponent === "string" ? match.opponent : "",
+        date: typeof match.date === "string" ? match.date : "",
+        techniques
+      };
+    });
+  const totals = skills.map(skill => {
+    const values = matches.flatMap(match => match.techniques.filter(item => item.name === skill.label));
+    return {
+      name: skill.label,
+      success: values.reduce((sum, item) => sum + item.success, 0),
+      errors: values.reduce((sum, item) => sum + item.errors, 0)
+    };
+  });
+  response.json({
+    player: {
+      name: player.name,
+      position: typeof player.position === "string" ? player.position : ""
+    },
+    totals,
+    matches
+  });
 });
 
 app.post("/api/logout", requireSameOrigin, (request, response, next) => {
@@ -634,7 +910,7 @@ app.delete("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin,
   }
 });
 
-app.get("/api/player-accounts", requireUser, requireOperator, (request, response) => {
+app.get("/api/player-accounts", requireUser, requireOperator, requireMenuAction("players", "view"), (request, response) => {
   const accounts = database.all(
     `SELECT player_user_links.player_id AS playerId, app_users.email AS username
      FROM player_user_links JOIN app_users ON app_users.id = player_user_links.user_id
@@ -643,7 +919,7 @@ app.get("/api/player-accounts", requireUser, requireOperator, (request, response
   response.json({ accounts });
 });
 
-app.post("/api/player-accounts", requireSameOrigin, requireUser, requireOperator, async (request, response, next) => {
+app.post("/api/player-accounts", requireSameOrigin, requireUser, requireOperator, requireMenuAction("players", "edit"), async (request, response, next) => {
   try {
     const playerId = Number(request.body.playerId);
     const username = typeof request.body.username === "string" ? request.body.username.trim().toLowerCase() : "";
@@ -676,7 +952,7 @@ app.post("/api/player-accounts", requireSameOrigin, requireUser, requireOperator
   }
 });
 
-app.put("/api/player-accounts/:playerId", requireSameOrigin, requireUser, requireOperator, async (request, response, next) => {
+app.put("/api/player-accounts/:playerId", requireSameOrigin, requireUser, requireOperator, requireMenuAction("players", "edit"), async (request, response, next) => {
   try {
     const playerId = Number(request.params.playerId);
     const username = typeof request.body.username === "string" ? request.body.username.trim().toLowerCase() : "";
@@ -709,7 +985,7 @@ app.put("/api/player-accounts/:playerId", requireSameOrigin, requireUser, requir
   }
 });
 
-app.get("/api/players/template", requireUser, requireOperator, async (request, response, next) => {
+app.get("/api/players/template", requireUser, requireOperator, requireMenuAction("players", "view"), async (request, response, next) => {
   try {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Data Pemain");
@@ -722,11 +998,12 @@ app.get("/api/players/template", requireUser, requireOperator, async (request, r
       { header: "Berat (kg)", key: "weight", width: 14 },
       { header: "Spike Reach (cm)", key: "spikeReach", width: 18 },
       { header: "Block Reach (cm)", key: "blockReach", width: 18 },
+      { header: "Vertical Jump (cm)", key: "verticalJump", width: 20 },
       { header: "Jenis Kelamin", key: "gender", width: 20 },
       { header: "Tanggal Lahir", key: "birthDate", width: 18 }
     ];
     sheet.views = [{ state: "frozen", ySplit: 1 }];
-    sheet.autoFilter = "A1:J1";
+    sheet.autoFilter = "A1:K1";
     sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF315EE8" } };
     const contents = await workbook.xlsx.writeBuffer();
@@ -743,6 +1020,7 @@ app.post(
   requireSameOrigin,
   requireUser,
   requireOperator,
+  requireMenuAction("players", "edit"),
   express.raw({ type: [excelMimeType, "application/octet-stream"], limit: "2mb" }),
   async (request, response, next) => {
     try {
@@ -769,11 +1047,12 @@ app.post(
         weight: "berat",
         spikeReach: "spikereach",
         blockReach: "blockreach",
+        verticalJump: "verticaljump",
         gender: "jeniskelamin",
         birthDate: "tanggallahir"
       };
       const columns = Object.fromEntries(Object.entries(fields).map(([field, header]) => [field, headerMap.get(header)]));
-      if (Object.entries(columns).some(([field, column]) => ["gender", "birthDate"].includes(field) ? false : !column)) {
+      if (Object.entries(columns).some(([field, column]) => ["gender", "birthDate", "verticalJump"].includes(field) ? false : !column)) {
         apiError(response, 400, "Header Excel tidak sesuai template. Unduh template pemain terlebih dahulu.");
         return;
       }
@@ -805,13 +1084,16 @@ app.post(
           ? birthCell.value.toISOString().slice(0, 10)
           : birthCell ? String(birthCell.text || "").trim() : "";
         const birthDate = rawBirthDate;
+        const verticalInput = columns.verticalJump ? value("verticalJump") : "";
         const numeric = Object.fromEntries(["number", "height", "weight", "spikeReach", "blockReach"].map(field => [field, Number(value(field))]));
+        numeric.verticalJump = verticalInput ? Number(verticalInput) : null;
         if (!name && !className && Object.values(numeric).every(number => !number)) continue;
         const position = positions.find(item => item.toLowerCase() === value("position").toLowerCase());
         const valid = name && name.length <= 80 && className && className.length <= 40 && position &&
           Number.isInteger(numeric.number) && numeric.number >= 0 && numeric.number <= 99 &&
           Number.isFinite(numeric.height) && numeric.height >= 100 && numeric.height <= 230 &&
           Number.isFinite(numeric.weight) && numeric.weight >= 20 && numeric.weight <= 180 &&
+          (numeric.verticalJump == null || (Number.isFinite(numeric.verticalJump) && numeric.verticalJump >= 0 && numeric.verticalJump <= 120)) &&
           Number.isFinite(numeric.spikeReach) && numeric.spikeReach >= 100 && numeric.spikeReach <= 350 &&
           Number.isFinite(numeric.blockReach) && numeric.blockReach >= 100 && numeric.blockReach <= 350 &&
           (!gender || ["Perempuan", "Laki-laki"].includes(gender)) &&
@@ -832,9 +1114,10 @@ app.post(
           birthDate,
           height: numeric.height,
           weight: numeric.weight,
+          verticalJump: numeric.verticalJump,
           spikeReach: numeric.spikeReach,
           blockReach: numeric.blockReach,
-          history: [{ date: new Date().toISOString().slice(0, 10), height: numeric.height, weight: numeric.weight, spikeReach: numeric.spikeReach, blockReach: numeric.blockReach }]
+          history: [{ date: new Date().toISOString().slice(0, 10), height: numeric.height, weight: numeric.weight, verticalJump: numeric.verticalJump, spikeReach: numeric.spikeReach, blockReach: numeric.blockReach }]
         };
         players.push(profile);
         added++;
@@ -887,7 +1170,7 @@ app.get("/api/state", requireUser, (request, response) => {
   response.json({ ...result, role: request.user.role });
 });
 
-app.put("/api/state", requireSameOrigin, requireUser, requireOperator, (request, response, next) => {
+app.put("/api/state", requireSameOrigin, requireUser, (request, response, next) => {
   try {
     const state = writeAppState(request.body.data, request.user.role, false);
     response.json({ ok: true, updatedAt: new Date().toISOString(), data: state });
@@ -1016,6 +1299,42 @@ function saveBackupResult(result, message, scheduled) {
 
 app.get("/api/admin/backup-settings", requireUser, requireAdmin, (request, response) => {
   response.json(getBackupSettings());
+});
+
+async function publicPortalDetails(request) {
+  const settings = database.get("SELECT token, enabled FROM public_portal WHERE id = 1");
+  const enabled = Boolean(settings && settings.enabled && validPortalToken(settings.token));
+  if (!enabled) return { enabled: false, url: "", qrDataUrl: "" };
+  const url = new URL(`/portal/${settings.token}`, `${request.protocol}://${request.get("host")}`).toString();
+  return { enabled: true, url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 220 }) };
+}
+
+app.get("/api/admin/public-portal", requireUser, requireAdmin, async (request, response, next) => {
+  try {
+    response.json(await publicPortalDetails(request));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/public-portal", requireSameOrigin, requireUser, requireAdmin, async (request, response, next) => {
+  try {
+    const token = crypto.randomBytes(32).toString("base64url");
+    database.transaction(() => database.run(
+      "UPDATE public_portal SET token = ?, enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+      [token]
+    ));
+    response.json(await publicPortalDetails(request));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/admin/public-portal", requireSameOrigin, requireUser, requireAdmin, (request, response) => {
+  database.transaction(() => database.run(
+    "UPDATE public_portal SET token = NULL, enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = 1"
+  ));
+  response.json({ enabled: false, url: "", qrDataUrl: "" });
 });
 
 app.put("/api/admin/backup-settings", requireSameOrigin, requireUser, requireAdmin, (request, response) => {
@@ -1216,6 +1535,16 @@ async function start() {
     ));
     console.log("Bootstrap administrator account created.");
   }
+
+  app.get("/portal/:token", (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    if (!publicPortalMatches(request.params.token)) {
+      response.status(404).type("text/plain").send("Portal publik tidak ditemukan.");
+      return;
+    }
+    response.sendFile(path.join(publicDirectory, "portal.html"));
+  });
 
   app.use(express.static(publicDirectory, {
     dotfiles: "deny",

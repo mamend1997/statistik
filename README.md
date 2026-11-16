@@ -1,6 +1,6 @@
 # VolleyDesk
 
-VolleyDesk mengelola biodata dan antropometri pemain, kehadiran, kalender, kegiatan latihan, statistik live pertandingan, target performa, rekomendasi, laporan, backup, serta akses admin, sekolah, pelatih, dan pemain.
+VolleyDesk mengelola biodata dan antropometri pemain, kehadiran, kalender, kegiatan latihan, statistik live pertandingan, laporan, backup, serta akses admin, sekolah, pelatih, dan pemain.
 
 ## Menjalankan lokal
 
@@ -21,13 +21,13 @@ SQLite disimpan pada `SQLITE_PATH` (default `./data/volleydesk.sqlite`). Direkto
 
 Data aplikasi, akun, dan sesi login disimpan server-side di SQLite. Cookie sesi HttpOnly berlaku 30 hari dan sesi tetap aktif saat server restart atau deploy selama memakai database yang sama. Untuk Railway, pasang persistent volume pada `/data` dan atur `SQLITE_PATH=/data/volleydesk.sqlite`; tanpa volume, filesystem container dapat hilang saat deploy atau restart sehingga akun, data, dan sesi ikut hilang. Sesi juga berakhir setelah logout atau perubahan kata sandi.
 
-Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama. Admin/pelatih dapat mengimpor daftar pemain dari Excel `.xlsx` atau CSV di menu Data pemain; template `.xlsx` dapat diunduh di halaman tersebut. Kolom jenis kelamin dan tanggal lahir (format `YYYY-MM-DD`) bersifat opsional, sehingga template lama tetap kompatibel.
+Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama. Admin/pelatih dapat mengimpor daftar pemain dari Excel `.xlsx` atau CSV di menu Data pemain; template `.xlsx` dapat diunduh di halaman tersebut. Kolom vertical jump (cm), jenis kelamin, dan tanggal lahir (format `YYYY-MM-DD`) bersifat opsional, sehingga template lama tetap kompatibel.
 
 Admin dapat membuat akun pemain dari Pengaturan akses atau dari bagian **Akun login pemain** pada tombol **Edit** di menu Data pemain. Username dapat berupa username sederhana atau email; kata sandi minimal 6 karakter dan disimpan dalam bentuk hash. Akun pemain hanya menerima profil, kehadiran, statistik, agenda, dan target milik pemain tersebut. Pemain tidak dapat mengubah data bersama.
 
 Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua untuk menghapus pemain beserta catatan terkait. Akun pemain yang masih terhubung harus dihapus dahulu dari daftar akun.
 
-Tombol **Statistik pemain** membuka detail kehadiran dan statistik teknik per pertandingan. **Antropometri** menampilkan riwayat pengukuran dan formulir untuk menambahkan pembaruan manual. Profil pemain dapat diedit dari tombol **Edit profil**; penghapusan dari halaman detail memerlukan konfirmasi dan ikut menghapus catatan pemain yang terkait.
+Tombol **Statistik pemain** membuka detail kehadiran, statistik teknik per pertandingan, dan riwayat antropometri. Gunakan **Update antropometri** untuk mencatat tanggal pengukuran, tinggi, berat badan, vertical jump, spike reach, dan block reach. Grafik tren vertical jump serta jangkauan lompatan menampilkan riwayat dari waktu ke waktu; data lama tanpa vertical jump tetap dapat dibuka. Halaman statistik pemain menyediakan **Cetak PDF** untuk menyimpan ringkasan serta riwayat pemain. Profil pemain dapat diedit dari tombol **Edit profil**; penghapusan dari halaman detail memerlukan konfirmasi dan ikut menghapus catatan pemain yang terkait.
 
 ## Backup, restore, dan Telegram
 
@@ -37,11 +37,19 @@ Tombol **Statistik pemain** membuka detail kehadiran dan statistik teknik per pe
 - Setelah kredensial tersedia, admin dapat mengaktifkan backup harian dan memilih waktu. Zona waktu default adalah `Asia/Jakarta`.
 - **Kirim backup sekarang** mengirim berkas melalui bot Telegram. Bot perlu dapat mengirim pesan ke chat tujuan.
 
-Menu **Latihan** menampilkan daftar sesi beserta status absensi dan aksi **Pratinjau**, **Edit**, serta **Hapus** dengan konfirmasi. **Tambah Sesi** membuka pengisian absensi; evaluasi individu hanya tersedia untuk pemain berstatus Hadir. Kalender menampilkan grid bulanan dan seluruh kegiatan, serta menyediakan **Tambah sesi** dan **Tambah pertandingan** pada tanggal yang dipilih. Kegiatan latihan terjadwal menjadi sesi latihan, sedangkan pertandingan, sparring, dan turnamen terjadwal masuk ke daftar pertandingan. Menu **Tim** digunakan untuk mengelompokkan pemain. Saat membuat atau mengedit pertandingan, pilih tim lalu roster pemain yang hadir dan bertanding. Menu **Pertandingan** menampilkan persentase menang, total ace, poin serangan, receive, dan blok serta daftar laga dengan aksi **Pratinjau**, **Edit**, **Catat live**, dan **Hapus**. Catat live dibuka dari daftar pertandingan untuk mengisi statistik pemain dan skor hingga lima set, lalu menyimpan evaluasi umum dan individu.
-
-**Target performa** mengambil capaian langsung dari statistik pertandingan: blok berhasil, serangan berhasil, servis gagal, dan receive gagal. Target awal mingguan disesuaikan dengan posisi: Libero (0, 0, 1, 2), Setter/Toser (2, 4, 2, 2), Outside Hitter (3, 8, 2, 3), Opposite (3, 8, 2, 2), dan Middle Blocker (5, 5, 2, 2), berurutan untuk keempat metrik tersebut. Target bulanan awal adalah empat kali nilai mingguan; pelatih dapat mengubahnya kapan saja. Target keberhasilan adalah jumlah minimal, sedangkan jumlah kegagalan adalah batas maksimal.
+Menu **Latihan** menampilkan daftar sesi beserta status absensi dan aksi **Pratinjau**, **Edit**, serta **Hapus** dengan konfirmasi. Saat menambah sesi, pilih semua pemain, pilih tim, atau tentukan pemain secara manual; mode manual juga menyediakan **Pilih semua pemain**. **Tambah Sesi** membuka pengisian absensi hanya untuk roster sesi; evaluasi individu hanya tersedia untuk pemain berstatus Hadir. Kalender menampilkan tampilan grid bulanan atau tahunan, tanggal berada di tengah kotak membulat, dan legenda membedakan **Latihan** serta **Pertandingan**. Kalender juga menyediakan **Tambah sesi** dan **Tambah pertandingan** pada tanggal yang dipilih. Setelah penambahan dari Kalender, aplikasi kembali ke Kalender; data sesi dan pertandingan diedit dari menu masing-masing. Kegiatan latihan terjadwal menjadi sesi latihan, sedangkan pertandingan, sparring, dan turnamen terjadwal masuk ke daftar pertandingan. Menu **Tim** digunakan untuk mengelompokkan pemain. Saat membuat atau mengedit pertandingan, pilih tim lalu roster pemain yang hadir dan bertanding. Menu **Pertandingan** menampilkan persentase menang, total ace, poin serangan, receive, dan blok serta daftar laga dengan aksi **Pratinjau**, **Edit**, **Catat live**, dan **Hapus**. Catat live dibuka dari daftar pertandingan untuk mengisi statistik pemain dan skor hingga lima set, lalu menyimpan evaluasi umum dan individu.
 
 Admin juga dapat memilih maksimal lima item navigasi bawah serta highlight-nya untuk setiap role.
+
+Pada Pengaturan, admin dapat mengatur visibilitas setiap menu dan batas tindakan per role: **Lihat saja**, **Edit/tambah**, atau **Termasuk hapus**. Admin selalu memiliki akses penuh; akun pemain tetap hanya dapat melihat data yang terhubung dengannya. Batas perubahan juga diperiksa server, bukan hanya dengan menyembunyikan tombol.
+
+Pengaturan **Identitas aplikasi & kop dokumen** mengatur nama dan subjudul aplikasi, judul tab browser, logo/favicon, serta kop cetak laporan dan statistik pemain. Ukuran logo, teks, font, ukuran font, tebal/miring, dan garis pembatas kop dapat diubah; pratinjau tersedia sebelum disimpan.
+
+Admin dapat mengaktifkan **Portal publik pemain** di Pengaturan untuk membuat tautan acak dan QR code lokal. Pengunjung mengetik sedikitnya tiga huruf nama dan memasukkan tanggal lahir yang terdaftar untuk melihat statistik pertandingan. Tautan dapat diputar atau dinonaktifkan; data kelas, kehadiran, antropometri, evaluasi, dan tanggal lahir tidak ditampilkan. Siapa pun yang memperoleh tautan dapat membuka formulir, sehingga tanggal lahir merupakan pemeriksaan dasar, bukan autentikasi kuat.
+
+Menu **Laporan** memiliki filter mingguan, bulanan, tahunan, dan rentang tanggal khusus. Rentang aktif diterapkan pada laporan kehadiran per sesi dan pemain, riwayat pengukuran antropometri seluruh pemain, serta rekap statistik tiap pemain pada setiap pertandingan. Masing-masing laporan dapat diunduh sebagai CSV atau dicetak menjadi PDF.
+
+Dashboard menampilkan grafik efisiensi rata-rata tiap pemain untuk Ace, serangan, receive, dan blok serta grafik total sukses teknik tersebut di seluruh pertandingan. Menu **Papan Strategi** tersedia untuk admin dan pelatih: buat beberapa papan per lawan, susun starting six di posisi 1–6 dengan drag-and-drop atau pemilih nama, gunakan tombol rotasi servis, pilih formasi receive, catat set-play dan taktik khusus lawan, lalu simpan.
 
 Jangan menyimpan token bot atau kata sandi produksi di Git atau mengirimkannya melalui chat. Simpan salinan backup di lokasi aman lain; Telegram bukan satu-satunya salinan yang disarankan.
 
