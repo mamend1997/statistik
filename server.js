@@ -17,7 +17,7 @@ const publicDirectory = path.resolve(__dirname, "public");
 const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const validPlayerUsername = /^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$/;
 const validRoles = new Set(["admin", "principal", "curriculum", "coach", "player"]);
-const validMenus = new Set(["dashboard", "players", "teams", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets", "strategy", "settings"]);
+const validMenus = new Set(["dashboard", "players", "teams", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets", "strategy", "activityLog", "settings"]);
 const accessLevels = new Set(["view", "edit", "full"]);
 const dataMenuSections = [
   { section: "players", menu: "players" },
@@ -234,6 +234,52 @@ function readAppState() {
   return row ? { data: JSON.parse(row.state_json), isInitial: Boolean(row.is_initial) } : { data: null, isInitial: true };
 }
 
+function insertActivity(actor, description) {
+  database.run(
+    "INSERT INTO activity_log (actor_id, actor_name, actor_role, description) VALUES (?, ?, ?, ?)",
+    [actor && actor.id || null, actor && actor.name || "Pengguna", actor && actor.role || "unknown", description]
+  );
+}
+
+function stateChangeDescriptions(previous, state) {
+  const sections = [
+    ["players", "Data pemain"],
+    ["teams", "Tim"],
+    ["sessions", "Latihan"],
+    ["events", "Agenda"],
+    ["matches", "Pertandingan"],
+    ["strategyBoards", "Papan strategi"]
+  ];
+  const changes = [];
+  for (const [key, label] of sections) {
+    const before = previous && Array.isArray(previous[key]) ? previous[key] : [];
+    const after = Array.isArray(state[key]) ? state[key] : [];
+    const beforeById = new Map(before.map(item => [String(item.id), item]));
+    const afterById = new Map(after.map(item => [String(item.id), item]));
+    let added = 0, updated = 0, removed = 0;
+    for (const [id, item] of afterById) {
+      if (!beforeById.has(id)) added++;
+      else if (JSON.stringify(beforeById.get(id)) !== JSON.stringify(item)) updated++;
+    }
+    for (const id of beforeById.keys()) {
+      if (!afterById.has(id)) removed++;
+    }
+    if (added || updated || removed) {
+      const summary = [];
+      if (added) summary.push(`${added} ditambahkan`);
+      if (updated) summary.push(`${updated} diperbarui`);
+      if (removed) summary.push(`${removed} dihapus`);
+      changes.push(`${label}: ${summary.join(", ")}`);
+    }
+  }
+  for (const [key, label] of [["targets", "Target pemain"], ["menuVisibility", "Visibilitas menu"], ["accessPermissions", "Hak akses"], ["highlights", "Menu sorotan"], ["bottomNav", "Navigasi bawah"], ["bottomHighlights", "Sorotan navigasi bawah"], ["branding", "Identitas aplikasi"]]) {
+    if (JSON.stringify(previous && previous[key] || {}) !== JSON.stringify(state[key] || {})) {
+      changes.push(`${label} diperbarui`);
+    }
+  }
+  return changes;
+}
+
 function validPortalToken(value) {
   return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
 }
@@ -403,7 +449,7 @@ function sanitizeAppState(input, previous, role) {
   return clean;
 }
 
-function writeAppState(input, role, initialOnly) {
+function writeAppState(input, role, initialOnly, actor) {
   const current = readAppState();
   if (initialOnly && !current.isInitial) {
     const error = new Error("Data server sudah tersedia; import awal tidak dapat menimpanya.");
@@ -423,12 +469,15 @@ function writeAppState(input, role, initialOnly) {
   }
   const state = sanitizeAppState(input, current.data, role);
   if (current.data) assertStateAccess(state, current.data, role);
+  const changes = stateChangeDescriptions(current.data, state);
   database.transaction(() => {
     database.run(
       `INSERT INTO app_state (id, state_json, is_initial, updated_at) VALUES (1, ?, 0, CURRENT_TIMESTAMP)
        ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, is_initial = 0, updated_at = CURRENT_TIMESTAMP`,
       [JSON.stringify(state)]
     );
+    for (const description of changes) insertActivity(actor, description);
+    if (!current.data && initialOnly) insertActivity(actor, "Menyiapkan data aplikasi");
   });
   return state;
 }
@@ -501,6 +550,10 @@ app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response
     database.transaction(() => {
       database.run("DELETE FROM auth_sessions WHERE expires_at <= ?", [Date.now()]);
       database.run("INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)", [tokenHash, user.id, expiresAt]);
+      insertActivity(
+        { id: user.id, name: user.name, role: user.player_id ? "player" : user.role },
+        "Login berhasil"
+      );
     });
     setSessionCookie(response, token);
     response.json({ user: {
@@ -643,7 +696,10 @@ app.post("/api/logout", requireSameOrigin, (request, response, next) => {
     const token = parseCookie(request, cookieName);
     if (token) {
       const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-      database.transaction(() => database.run("DELETE FROM auth_sessions WHERE token_hash = ?", [tokenHash]));
+      database.transaction(() => {
+        database.run("DELETE FROM auth_sessions WHERE token_hash = ?", [tokenHash]);
+        if (request.user) insertActivity(request.user, "Logout");
+      });
     }
     clearSessionCookie(response);
     response.status(204).end();
@@ -671,6 +727,7 @@ app.post("/api/password", requireSameOrigin, requireUser, passwordLimiter, async
     database.transaction(() => {
       database.run("UPDATE app_users SET password_hash = ? WHERE id = ?", [passwordHash, request.user.id]);
       database.run("DELETE FROM auth_sessions WHERE user_id = ? AND token_hash != ?", [request.user.id, currentTokenHash]);
+      insertActivity(request.user, "Mengubah kata sandi");
     });
     response.status(204).end();
   } catch (error) {
@@ -722,6 +779,7 @@ app.put("/api/profile", requireSameOrigin, requireUser, async (request, response
       if (newPassword) {
         database.run("DELETE FROM auth_sessions WHERE user_id = ? AND token_hash != ?", [request.user.id, currentTokenHash]);
       }
+      insertActivity(request.user, "Memperbarui profil");
     });
     response.json({ user: {
       id: current.id,
@@ -785,6 +843,7 @@ app.post("/api/admin/users", requireSameOrigin, requireUser, requireAdmin, async
       database.run("INSERT INTO app_users (name, email, role, password_hash) VALUES (?, ?, ?, ?)", [name, email, role === "player" ? "coach" : role, passwordHash]);
       user = database.get("SELECT id, name, email, role FROM app_users WHERE email = ? COLLATE NOCASE", [email]);
       if (role === "player") database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [user.id, playerId]);
+      insertActivity(request.user, `Membuat akun: ${name} (${role})`);
     });
     response.status(201).json({ user: { ...user, role, playerId } });
   } catch (error) {
@@ -860,6 +919,7 @@ app.put("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin, as
       );
       database.run("DELETE FROM player_user_links WHERE user_id = ?", [id]);
       if (role === "player") database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [id, playerId]);
+      insertActivity(request.user, `Memperbarui akun: ${name} (${role})`);
       updatedUser = database.get(
         `SELECT app_users.id, app_users.name, app_users.email, app_users.avatar_data_url AS avatar, app_users.created_at AS createdAt,
                 CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
@@ -893,7 +953,7 @@ app.delete("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin,
     apiError(response, 400, "Akun yang dipilih tidak dapat dihapus.");
     return;
   }
-  const user = database.get("SELECT id, role FROM app_users WHERE id = ?", [id]);
+  const user = database.get("SELECT id, name, role FROM app_users WHERE id = ?", [id]);
   if (!user) {
     apiError(response, 404, "Akun tidak ditemukan.");
     return;
@@ -903,7 +963,10 @@ app.delete("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin,
     return;
   }
   try {
-    database.transaction(() => database.run("DELETE FROM app_users WHERE id = ?", [id]));
+    database.transaction(() => {
+      database.run("DELETE FROM app_users WHERE id = ?", [id]);
+      insertActivity(request.user, `Menghapus akun: ${user.name}`);
+    });
     response.status(204).end();
   } catch (error) {
     next(error);
@@ -1154,7 +1217,7 @@ app.post(
         apiError(response, 400, "Tidak ada baris pemain yang valid. Isi semua kolom wajib dan gunakan posisi serta rentang angka sesuai sheet Petunjuk.");
         return;
       }
-      writeAppState(current.data, request.user.role, false);
+      writeAppState(current.data, request.user.role, false, request.user);
       response.json({ ok: true, added, skipped });
     } catch (error) {
       if (error.message && /invalid|zip|central directory|unexpected end/i.test(error.message)) {
@@ -1200,7 +1263,7 @@ app.get("/api/state", requireUser, (request, response) => {
 
 app.put("/api/state", requireSameOrigin, requireUser, (request, response, next) => {
   try {
-    const state = writeAppState(request.body.data, request.user.role, false);
+    const state = writeAppState(request.body.data, request.user.role, false, request.user);
     response.json({ ok: true, updatedAt: new Date().toISOString(), data: state });
   } catch (error) {
     if (error.status) {
@@ -1215,9 +1278,17 @@ app.put("/api/state", requireSameOrigin, requireUser, (request, response, next) 
   }
 });
 
+app.get("/api/admin/activity-log", requireUser, requireAdmin, (request, response) => {
+  const entries = database.all(
+    `SELECT id, actor_name AS actorName, actor_role AS actorRole, description, created_at AS createdAt
+     FROM activity_log ORDER BY created_at DESC, id DESC LIMIT 200`
+  );
+  response.json({ entries });
+});
+
 app.post("/api/state/initialize", requireSameOrigin, requireUser, requireAdmin, (request, response, next) => {
   try {
-    const state = writeAppState(request.body.data, request.user.role, true);
+    const state = writeAppState(request.body.data, request.user.role, true, request.user);
     response.json({ ok: true, data: state });
   } catch (error) {
     if (error.status) {

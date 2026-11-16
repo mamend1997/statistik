@@ -138,6 +138,15 @@ async function initializeDatabase() {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     INSERT OR IGNORE INTO public_portal (id) VALUES (1);
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_id INTEGER,
+      actor_name TEXT NOT NULL,
+      actor_role TEXT NOT NULL,
+      description TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS activity_log_created_at ON activity_log(created_at DESC, id DESC);
   `);
   const userColumns = all("PRAGMA table_info(app_users)");
   if (!userColumns.some(column => column.name === "avatar_data_url")) {

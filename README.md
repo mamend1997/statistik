@@ -43,6 +43,8 @@ Admin juga dapat memilih maksimal lima item navigasi bawah serta highlight-nya u
 
 Pada Pengaturan, admin dapat mengatur visibilitas setiap menu dan batas tindakan per role: **Lihat saja**, **Edit/tambah**, atau **Termasuk hapus**. Admin selalu memiliki akses penuh; akun pemain tetap hanya dapat melihat data yang terhubung dengannya. Batas perubahan juga diperiksa server, bukan hanya dengan menyembunyikan tombol.
 
+Menu **Log aktivitas** khusus admin menampilkan hingga 200 aktivitas terbaru, termasuk login/logout, perubahan data, profil, kata sandi, dan akun pengguna. Log disimpan di SQLite dan tidak memuat kata sandi atau token.
+
 Pengaturan **Identitas aplikasi & kop dokumen** mengatur nama dan subjudul aplikasi, judul tab browser, logo/favicon, serta kop cetak laporan dan statistik pemain. Ukuran logo, teks, font, ukuran font, tebal/miring, dan garis pembatas kop dapat diubah; pratinjau tersedia sebelum disimpan.
 
 Admin dapat mengaktifkan **Portal publik pemain** di Pengaturan untuk membuat tautan acak dan QR code lokal. Pengunjung mengetik sedikitnya tiga huruf nama dan memasukkan tanggal lahir yang terdaftar untuk melihat statistik pertandingan. Tautan dapat diputar atau dinonaktifkan; data kelas, kehadiran, antropometri, evaluasi, dan tanggal lahir tidak ditampilkan. Siapa pun yang memperoleh tautan dapat membuka formulir, sehingga tanggal lahir merupakan pemeriksaan dasar, bukan autentikasi kuat.

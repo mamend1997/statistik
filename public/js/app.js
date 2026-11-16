@@ -21,6 +21,7 @@
         { id: "teams", label: "Tim", icon: "🏐", roles: ["admin", "coach"] },
         { id: "strategy", label: "Papan Strategi", icon: "♧", roles: ["admin", "coach"] },
         { id: "reports", label: "Laporan", icon: "▤", roles: ["admin", "principal", "curriculum", "coach"] },
+        { id: "activityLog", label: "Log aktivitas", icon: "◷", roles: ["admin"] },
         { id: "settings", label: "Pengaturan", icon: "⚙", roles: ["admin"] }
       ];
       const brandingDefaults = {
@@ -43,7 +44,7 @@
       };
       const defaultAccessPermissions = Object.fromEntries(Object.keys(roles).map(role => [
         role,
-        Object.fromEntries(pages.filter(page => page.id !== "settings").map(page => [
+        Object.fromEntries(pages.filter(page => !["settings", "activityLog"].includes(page.id)).map(page => [
           page.id,
           role === "admin" || role === "coach" ? "full" : "view"
         ]))
@@ -106,6 +107,9 @@
       let data = JSON.parse(JSON.stringify(defaultData));
       let backupSettings = null;
       let publicPortal = null;
+      let activityLogEntries = null;
+      let activityLogLoading = false;
+      let activityLogError = "";
       let legacyData = null;
       let saveQueue = Promise.resolve();
       try {
@@ -222,6 +226,7 @@
       }
       const visiblePages = () => pages.filter(p =>
         (p.id !== "settings" || activeRole() === "admin") &&
+        (p.id !== "activityLog" || activeRole() === "admin") &&
         (data.menuVisibility[activeRole()] || []).includes(p.id)
       );
       function restoreLastPage() {
@@ -1087,7 +1092,9 @@
       }
       function settingsPage() {
         const role = settingsRoleKey;
-        const allowed = (data.menuVisibility[role] || []).filter(id => id !== "settings" || role === "admin");
+        const allowed = (data.menuVisibility[role] || []).filter(id =>
+          (id !== "settings" || role === "admin") && (id !== "activityLog" || role === "admin")
+        );
         const bottomAllowed = (data.bottomNav && data.bottomNav[role] || []).filter(id => allowed.includes(id));
         const branding = Object.assign({}, brandingDefaults, data.branding || {});
         const backup = backupSettings || { enabled: false, time: "23:00", timezone: "Asia/Jakarta", telegramConfigured: false };
@@ -1096,9 +1103,9 @@
           : "Belum ada pengiriman backup.";
         return `${heading("Pengaturan aplikasi & akses", "Atur hak tindakan tiap role, identitas aplikasi, kop dokumen, portal publik, dan backup data.", '<button class="button secondary" data-action="add-user">＋ Tambah akun</button>')}
           <div class="grid dashboard-grid"><section class="card"><div class="card-head"><div><h2 class="card-title">Konfigurasi menu dinamis</h2><p class="card-sub">Atur menu samping dan maksimal lima menu navigasi bawah per role.</p></div><select class="select-mini" id="settings-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}" ${role === id ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
-          <div style="padding:0 19px 18px">${pages.map(p => `<label class="switch-row"><span><span class="note-title">${esc(p.label)}</span><span class="note-copy">Atur visibilitas menu untuk ${esc(roles[role])}</span></span><input class="switch menu-switch" type="checkbox" data-menu="${p.id}" ${allowed.includes(p.id) ? "checked" : ""} ${p.id === "settings" ? "disabled" : ""} aria-label="Izinkan menu ${esc(p.label)}"></label>`).join("")}
+          <div style="padding:0 19px 18px">${pages.map(p => `<label class="switch-row"><span><span class="note-title">${esc(p.label)}</span><span class="note-copy">Atur visibilitas menu untuk ${esc(roles[role])}</span></span><input class="switch menu-switch" type="checkbox" data-menu="${p.id}" ${allowed.includes(p.id) ? "checked" : ""} ${p.id === "settings" || (p.id === "activityLog" && role !== "admin") ? "disabled" : ""} aria-label="Izinkan menu ${esc(p.label)}"></label>`).join("")}
           <h3 class="card-title" style="margin:22px 0 4px">Hak tindakan per menu</h3><p class="card-sub">Pilih batas akses tertinggi. Hak edit mencakup tambah dan ubah; hapus dapat diberikan terpisah.</p>
-          <div class="access-level-list">${pages.filter(p => p.id !== "settings").map(p => {
+          <div class="access-level-list">${pages.filter(p => !["settings", "activityLog"].includes(p.id)).map(p => {
             const level = data.accessPermissions[role] && data.accessPermissions[role][p.id] || "view";
             const fixed = role === "admin" || role === "player";
             return `<div class="access-level-row"><span class="access-level-name">${esc(p.label)}</span><div class="access-level-options" role="radiogroup" aria-label="Hak tindakan ${esc(p.label)} untuk ${esc(roles[role])}">${[["view", "Lihat saja"], ["edit", "Edit/tambah"], ["full", "Termasuk hapus"]].map(([value, label]) => `<label class="access-level-option ${level === value ? "selected" : ""}"><input type="radio" name="access-${role}-${p.id}" value="${value}" data-access-menu="${p.id}" ${level === value ? "checked" : ""} ${fixed ? "disabled" : ""}><span>${label}</span></label>`).join("")}</div></div>`;
@@ -1147,6 +1154,24 @@
             </div>
           </section>`;
       }
+      function activityLogPage() {
+        const rows = activityLogEntries && activityLogEntries.length
+          ? activityLogEntries.map(entry => {
+            const date = new Date(`${String(entry.createdAt).replace(" ", "T")}Z`);
+            const formattedDate = Number.isNaN(date.getTime())
+              ? entry.createdAt
+              : date.toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+            return `<tr><td><strong>${esc(entry.actorName)}</strong><div class="position">${esc(roles[entry.actorRole] || entry.actorRole)}</div></td><td>${esc(entry.description)}</td><td>${esc(formattedDate)}</td></tr>`;
+          }).join("")
+          : "";
+        const message = activityLogError
+          ? `<p class="empty">Log aktivitas gagal dimuat: ${esc(activityLogError)}</p>`
+          : activityLogLoading
+            ? '<p class="empty">Memuat log aktivitas...</p>'
+            : '<p class="empty">Belum ada aktivitas yang tercatat.</p>';
+        return `${heading("Log aktivitas", "Riwayat login dan perubahan data aplikasi terbaru.", '<button class="button secondary" data-action="refresh-activity-log">Muat ulang</button>')}
+          <section class="card"><div class="table-wrap"><table><thead><tr><th>Pengguna</th><th>Aktivitas</th><th>Waktu</th></tr></thead><tbody>${rows}</tbody></table></div>${rows ? "" : message}</section>`;
+      }
       function pageContent() {
         switch (currentPage) {
           case "dashboard": return dashboardPage();
@@ -1161,6 +1186,7 @@
           case "recommendations": return recommendationsPage();
           case "reports": return reportsPage();
           case "targets": return targetsPage();
+          case "activityLog": return activityLogPage();
           case "settings": return settingsPage();
           default: return dashboardPage();
         }
@@ -1178,6 +1204,22 @@
         $("#theme-toggle").textContent = data.theme === "dark" ? "☀" : "☾";
         $("#theme-toggle").title = data.theme === "dark" ? "Gunakan tema terang" : "Gunakan tema gelap";
         bindContentEvents();
+        if (currentPage === "activityLog" && activityLogEntries === null && !activityLogLoading) loadActivityLog();
+      }
+      async function loadActivityLog(refresh) {
+        if (activityLogLoading) return;
+        if (refresh) activityLogEntries = null;
+        activityLogLoading = true;
+        activityLogError = "";
+        try {
+          const result = await api("/api/admin/activity-log");
+          activityLogEntries = result.entries;
+        } catch (error) {
+          activityLogError = error.message || "Tidak dapat memuat log aktivitas.";
+        } finally {
+          activityLogLoading = false;
+          if (currentPage === "activityLog") render();
+        }
       }
       function readBrandingImage(file, label, maximumBytes) {
         if (!file) return Promise.resolve("");
@@ -2280,6 +2322,7 @@
       function applyServerState(state) {
         const storedAdminMenus = state && state.menuVisibility && state.menuVisibility.admin;
         const needsAdminSettingsMigration = !Array.isArray(storedAdminMenus) || !storedAdminMenus.includes("settings");
+        const needsActivityLogMigration = !Array.isArray(storedAdminMenus) || !storedAdminMenus.includes("activityLog");
         const needsAccessMigration = !state || !state.accessPermissions;
         const needsBrandingMigration = !state || !state.branding || !state.branding.appName;
         data = Object.assign(JSON.parse(JSON.stringify(defaultData)), state || {});
@@ -2305,6 +2348,7 @@
         });
         data.menuConfigVersion = 1;
         if (!data.menuVisibility.admin.includes("settings")) data.menuVisibility.admin.push("settings");
+        if (!data.menuVisibility.admin.includes("activityLog")) data.menuVisibility.admin.push("activityLog");
         let needsMenuMigration = false;
         ["admin", "coach"].forEach(role => {
           if (!data.menuVisibility[role].includes("teams")) {
@@ -2340,7 +2384,7 @@
         settingsRoleKey = signedInUser.role;
         selectedMatchId = data.matches[0] ? data.matches[0].id : null;
         selectedTargetPlayerId = signedInUser.role === "player" ? signedInUser.playerId : (data.players[0] ? data.players[0].id : null);
-        return needsMenuMigration || needsAdminSettingsMigration || needsAccessMigration || needsBrandingMigration || needsCalendarMigration;
+        return needsMenuMigration || needsAdminSettingsMigration || needsActivityLogMigration || needsAccessMigration || needsBrandingMigration || needsCalendarMigration;
       }
       async function saveBackupSchedule() {
         try {
@@ -2558,6 +2602,7 @@
               }
               break;
             case "backup-now": await sendBackupNow(); break;
+            case "refresh-activity-log": await loadActivityLog(true); break;
             case "download-backup": await downloadBackup(); break;
             case "restore-backup": await restoreBackup(); break;
             case "export-report": exportReport(false); break;
