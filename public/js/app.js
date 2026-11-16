@@ -40,7 +40,15 @@
         titleItalic: false,
         subtitleBold: false,
         subtitleItalic: false,
-        letterheadLine: true
+        letterheadLine: true,
+        pdfSignaturesEnabled: true,
+        pdfPrincipalNameVisible: true,
+        pdfPrincipalIntro: "Mengetahui,",
+        pdfPrincipalRole: "Kepala Sekolah",
+        pdfPrincipalName: "",
+        pdfSignaturePlace: "",
+        pdfCoachRole: "Pelatih",
+        pdfCoachName: ""
       };
       const defaultAccessPermissions = Object.fromEntries(Object.keys(roles).map(role => [
         role,
@@ -185,6 +193,8 @@
           '#content button[data-edit-team]',
           '#content button[data-session-edit]',
           '#content button[data-edit-match]',
+          '#content button[data-calendar-edit-source]',
+          '#content button[data-calendar-event-edit]',
           '#content button[data-preview-edit]',
           '#content button[data-update-anthropometry]',
           '#content button[data-edit-attendance]',
@@ -195,6 +205,8 @@
           '#modal-root button[data-action^="add-"]',
           '#modal-root button[data-action^="save-"]',
           '#modal-root button[data-session-edit]',
+          '#modal-root button[data-edit-match]',
+          '#modal-root button[data-calendar-event-edit]',
           '#modal-root button[data-preview-edit]',
           '#modal-root button[data-preview-live]',
           '#modal-root button[data-edit-attendance]'
@@ -517,8 +529,41 @@
           .slice(0, limit);
       }
       function eventTypeClass(type) { return type === "Turnamen" ? "orange" : ["Sparring", "Pertandingan"].includes(type) ? "blue" : ""; }
+      function calendarActivityColor(event) {
+        const type = String(event.type || "").toLowerCase();
+        if (type.startsWith("latihan")) return "green";
+        if (["pertandingan", "sparring"].includes(type)) return "blue";
+        return "orange";
+      }
       function calendarDotClass(type) {
-        return ["Pertandingan", "Sparring", "Turnamen"].includes(String(type || "")) ? "blue" : "";
+        return calendarActivityColor({ type });
+      }
+      function calendarDayActivityClass(events) {
+        const colors = Array.from(new Set(events.map(calendarActivityColor)));
+        return colors.length ? "has-activities" : "";
+      }
+      function calendarDayActivityStyle(events) {
+        const colors = Array.from(new Set(events.map(calendarActivityColor)));
+        if (!colors.length) return "";
+        const palette = {
+          green: { color: "var(--green)", background: "var(--green-soft)" },
+          blue: { color: "var(--blue)", background: "var(--blue-soft)" },
+          orange: { color: "var(--orange)", background: "var(--orange-soft)" }
+        };
+        const gradient = property => colors.map((color, index) =>
+          `${palette[color][property]} ${index * 100 / colors.length}% ${(index + 1) * 100 / colors.length}%`
+        ).join(", ");
+        const background = colors.length === 1 ? palette[colors[0]].background : `linear-gradient(135deg, ${gradient("background")})`;
+        const marker = colors.length === 1 ? palette[colors[0]].color : `linear-gradient(135deg, ${gradient("color")})`;
+        return `style="--calendar-day-background:${background};--calendar-day-marker:${marker}"`;
+      }
+      function calendarActivityActions(event, canEdit) {
+        const id = String(event.id).replace(/^(session|match)-/, "");
+        return `<div class="toolbar-actions calendar-event-actions">
+          <button class="button secondary small" data-calendar-detail-source="${esc(event.source)}" data-calendar-detail-id="${esc(id)}">Detail</button>
+          ${canEdit ? `<button class="button secondary small" data-calendar-edit-source="${esc(event.source)}" data-calendar-edit-id="${esc(id)}">Edit</button>
+            <button class="button orange small" data-delete-${esc(event.source)}="${esc(id)}">Hapus</button>` : ""}
+        </div>`;
       }
       function eventRow(event) {
         const d = dateObj(event.date);
@@ -804,7 +849,7 @@
             const date = dateKey(new Date(monthDate.getFullYear(), monthDate.getMonth(), day));
             const dayEvents = eventsByDate.get(date) || [];
             const selected = date === selectedCalendarDate;
-            return `<button type="button" class="calendar-day ${mini ? "calendar-day-mini" : ""} ${selected ? "selected" : ""} ${date === todayISO() ? "today" : ""}" data-calendar-day="${date}" aria-label="${esc(formatDate(date))}${dayEvents.length ? `, ${dayEvents.length} kegiatan` : ""}" aria-pressed="${selected}">
+            return `<button type="button" class="calendar-day ${mini ? "calendar-day-mini" : ""} ${calendarDayActivityClass(dayEvents)} ${selected ? "selected" : ""} ${date === todayISO() ? "today" : ""}" ${calendarDayActivityStyle(dayEvents)} data-calendar-day="${date}" aria-label="${esc(formatDate(date))}${dayEvents.length ? `, ${dayEvents.length} kegiatan` : ""}" aria-pressed="${selected}">
               <span class="calendar-day-number">${day}</span><span class="calendar-day-dots">${dayEvents.slice(0, 3).map(event => `<i class="calendar-dot ${calendarDotClass(event.type)}" aria-label="${esc(event.title)}"></i>`).join("")}</span>
               ${!mini && dayEvents.length ? `<span class="calendar-day-count">${dayEvents.length} agenda</span>` : ""}
             </button>`;
@@ -821,17 +866,21 @@
           ? String(calendarMonth.getFullYear())
           : calendarMonth.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
         const actionDate = selectedCalendarDate || todayISO();
+        const selectedDayEvents = selectedCalendarDate
+          ? allActivities.filter(event => event.date === selectedCalendarDate)
+          : [];
         return `${heading("Kalender kegiatan", "Pilih tanggal untuk menjadwalkan sesi latihan atau pertandingan.", "")}
           <section class="card calendar-card">
             <div class="calendar-toolbar"><button class="icon-button" data-calendar-month="previous" aria-label="${calendarView === "year" ? "Tahun sebelumnya" : "Bulan sebelumnya"}">‹</button><strong>${esc(monthLabel)}</strong><div class="calendar-toolbar-controls"><div class="calendar-view-toggle" role="group" aria-label="Tampilan kalender"><button type="button" class="button ${calendarView === "month" ? "" : "secondary"} small" data-calendar-view="month" aria-pressed="${calendarView === "month"}">Bulanan</button><button type="button" class="button ${calendarView === "year" ? "" : "secondary"} small" data-calendar-view="year" aria-pressed="${calendarView === "year"}">Tahunan</button></div><button class="button secondary small" data-calendar-today>Hari ini</button><button class="icon-button" data-calendar-month="next" aria-label="${calendarView === "year" ? "Tahun berikutnya" : "Bulan berikutnya"}">›</button></div></div>
             ${calendarView === "year"
               ? `<div class="calendar-year-grid">${Array.from({ length: 12 }, (_, month) => renderMonthGrid(new Date(calendarMonth.getFullYear(), month, 1), true)).join("")}</div>`
               : renderMonthGrid(calendarMonth, false)}
-            <div class="calendar-legend"><span><i class="calendar-dot"></i> Latihan</span><span><i class="calendar-dot blue"></i> Pertandingan</span></div>
+            ${selectedDayEvents.length ? `<section class="calendar-selected-events"><div class="card-head"><div><h2 class="card-title">Kegiatan · ${formatDate(selectedCalendarDate)}</h2><p class="card-sub">${selectedDayEvents.length} kegiatan pada tanggal ini</p></div></div><div class="event-list">${selectedDayEvents.map(event => `<div class="event-row calendar-selected-event-row"><div class="calendar-event-color ${calendarDotClass(event.type)}"></div><div class="calendar-event-copy"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${esc(event.type)} · ${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}</div></div>${calendarActivityActions(event, canEdit)}</div>`).join("")}</div></section>` : ""}
+            <div class="calendar-legend"><span><i class="calendar-dot"></i> Latihan</span><span><i class="calendar-dot blue"></i> Pertandingan / sparring</span><span><i class="calendar-dot orange"></i> Turnamen / kegiatan lain</span></div>
           </section>
           <section class="card wide-card"><div class="toolbar"><div><strong style="font-size:13px">Seluruh kegiatan</strong><span class="card-sub" style="margin-left:8px">${allActivities.length} kegiatan</span></div>
           ${canEdit ? `<div class="toolbar-actions"><span class="tag blue">${selectedCalendarDate ? `Tanggal dipilih: ${formatDate(selectedCalendarDate)}` : `Tanggal: ${formatDate(actionDate)}`}</span><button class="button secondary small" data-action="new-session" data-calendar-date="${esc(actionDate)}">＋ Tambah sesi</button><button class="button small" data-action="add-match" data-calendar-date="${esc(actionDate)}">＋ Tambah pertandingan</button></div>` : ""}
-          </div><div class="event-list">${allActivities.length ? allActivities.map(event => `<div class="event-row"><div class="date-tile"><strong>${dateObj(event.date).getDate()}</strong><span>${shortMonth(event.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(event.type)}">${esc(event.type)}</span>${canEdit && event.source === "event" ? `<button class="close-x" title="Hapus catatan" data-delete-event="${event.id}">×</button>` : ""}</div>`).join("") : '<div class="empty">Belum ada kegiatan.</div>'}</div></section>`;
+          </div><div class="event-list">${allActivities.length ? allActivities.map(event => `<div class="event-row calendar-list-event-row"><div class="date-tile"><strong>${dateObj(event.date).getDate()}</strong><span>${shortMonth(event.date)}</span></div><div class="calendar-event-copy"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(event.type)}">${esc(event.type)}</span>${calendarActivityActions(event, canEdit)}</div>`).join("") : '<div class="empty">Belum ada kegiatan.</div>'}</div></section>`;
       }
       function teamsPage() {
         const teams = (data.teams || []).slice().sort((a, b) => a.name.localeCompare(b.name));
@@ -1090,6 +1139,16 @@
         const subtitleStyle = `font-family:${branding.fontFamily};font-size:${subtitleSize}px;font-weight:${branding.subtitleBold ? 700 : 400};font-style:${branding.subtitleItalic ? "italic" : "normal"}`;
         return `<div class="letterhead-layout">${branding.logo ? `<img class="letterhead-logo" src="${esc(branding.logo)}" alt="" style="width:${logoWidth}px;max-height:${logoWidth}px">` : ""}<div class="letterhead-copy"><div class="letterhead-title" style="${esc(titleStyle)}">${esc(branding.letterheadTitle)}</div><div class="letterhead-subtitle" style="${esc(subtitleStyle)}">${esc(branding.letterheadSubtitle)}</div></div></div>${branding.letterheadLine ? '<hr class="letterhead-rule">' : ""}`;
       }
+      function pdfSignatureMarkup(input) {
+        const branding = Object.assign({}, brandingDefaults, input || {});
+        if (!branding.pdfSignaturesEnabled) return "";
+        const place = String(branding.pdfSignaturePlace || "").trim() || "Tempat";
+        const signatureName = name => `<div class="pdf-signature-name">${esc(name || "")}</div>`;
+        return `<section class="pdf-signatures">
+          <div class="pdf-signature-side pdf-signature-left"><div>${esc(branding.pdfPrincipalIntro)}</div><div>${esc(branding.pdfPrincipalRole)}</div><div class="pdf-signature-space"></div>${branding.pdfPrincipalNameVisible ? signatureName(branding.pdfPrincipalName) : ""}</div>
+          <div class="pdf-signature-side pdf-signature-right"><div>${esc(place)}, ${esc(formatDate(todayISO()))}</div><div>${esc(branding.pdfCoachRole)}</div><div class="pdf-signature-space"></div>${signatureName(branding.pdfCoachName)}</div>
+        </section>`;
+      }
       function settingsPage() {
         const role = settingsRoleKey;
         const allowed = (data.menuVisibility[role] || []).filter(id =>
@@ -1133,6 +1192,15 @@
               <div class="field"><label class="switch-row" for="letterhead-subtitle-bold"><span>Subjudul tebal</span><input id="letterhead-subtitle-bold" class="switch" type="checkbox" ${branding.subtitleBold ? "checked" : ""}></label><label class="switch-row" for="letterhead-subtitle-italic"><span>Subjudul miring</span><input id="letterhead-subtitle-italic" class="switch" type="checkbox" ${branding.subtitleItalic ? "checked" : ""}></label></div>
               <div class="field full"><label class="switch-row" for="letterhead-line"><span>Tampilkan garis pembatas kop</span><input id="letterhead-line" class="switch" type="checkbox" ${branding.letterheadLine ? "checked" : ""}></label></div>
               <div class="field full"><label>Pratinjau kop</label><div id="letterhead-preview" class="letterhead-preview">${letterheadMarkup(branding)}</div></div>
+              <div class="field full"><h3 class="card-title">Tanda tangan pada PDF</h3><p class="card-sub">Pengaturan ini berlaku untuk semua PDF laporan dan statistik pemain.</p></div>
+              <div class="field full"><label class="switch-row" for="pdf-signatures-enabled"><span>Tampilkan blok tanda tangan pada PDF</span><input id="pdf-signatures-enabled" class="switch" type="checkbox" ${branding.pdfSignaturesEnabled ? "checked" : ""}></label></div>
+              <div class="field"><label for="pdf-principal-intro">Keterangan kepala sekolah</label><input id="pdf-principal-intro" maxlength="80" value="${esc(branding.pdfPrincipalIntro)}"></div>
+              <div class="field"><label for="pdf-principal-role">Jabatan kepala sekolah</label><input id="pdf-principal-role" maxlength="80" value="${esc(branding.pdfPrincipalRole)}"></div>
+              <div class="field"><label for="pdf-principal-name">Nama kepala sekolah</label><input id="pdf-principal-name" maxlength="80" value="${esc(branding.pdfPrincipalName)}"></div>
+              <div class="field"><label class="switch-row" for="pdf-principal-name-visible"><span>Tampilkan nama kepala sekolah</span><input id="pdf-principal-name-visible" class="switch" type="checkbox" ${branding.pdfPrincipalNameVisible ? "checked" : ""}></label></div>
+              <div class="field"><label for="pdf-signature-place">Tempat tanda tangan</label><input id="pdf-signature-place" maxlength="80" value="${esc(branding.pdfSignaturePlace)}" placeholder="Contoh: Jakarta"></div>
+              <div class="field"><label for="pdf-coach-role">Jabatan pelatih</label><input id="pdf-coach-role" maxlength="80" value="${esc(branding.pdfCoachRole)}"></div>
+              <div class="field"><label for="pdf-coach-name">Nama pelatih</label><input id="pdf-coach-name" maxlength="80" value="${esc(branding.pdfCoachName)}"></div>
               <div class="field full"><button class="button" data-action="save-branding">Simpan identitas & kop</button><p class="privacy-note">Logo dan kop digunakan pada halaman aplikasi serta dokumen cetak. Favicon dan judul tab hanya memengaruhi tampilan browser.</p></div>
             </div>
           </section>
@@ -1264,7 +1332,15 @@
           titleItalic: checked("letterhead-title-italic", data.branding.titleItalic),
           subtitleBold: checked("letterhead-subtitle-bold", data.branding.subtitleBold),
           subtitleItalic: checked("letterhead-subtitle-italic", data.branding.subtitleItalic),
-          letterheadLine: checked("letterhead-line", data.branding.letterheadLine)
+          letterheadLine: checked("letterhead-line", data.branding.letterheadLine),
+          pdfSignaturesEnabled: checked("pdf-signatures-enabled", data.branding.pdfSignaturesEnabled),
+          pdfPrincipalNameVisible: checked("pdf-principal-name-visible", data.branding.pdfPrincipalNameVisible),
+          pdfPrincipalIntro: text("pdf-principal-intro", data.branding.pdfPrincipalIntro),
+          pdfPrincipalRole: text("pdf-principal-role", data.branding.pdfPrincipalRole),
+          pdfPrincipalName: text("pdf-principal-name", data.branding.pdfPrincipalName),
+          pdfSignaturePlace: text("pdf-signature-place", data.branding.pdfSignaturePlace),
+          pdfCoachRole: text("pdf-coach-role", data.branding.pdfCoachRole),
+          pdfCoachName: text("pdf-coach-name", data.branding.pdfCoachName)
         });
       }
       function updateLetterheadPreview() {
@@ -1747,13 +1823,46 @@
           saveAttendance.disabled = false;
         });
       }
-      function addEventModal(defaultType) {
-        const eventDate = selectedCalendarDate || todayISO();
+      function addEventModal(defaultType, eventId) {
+        const event = eventId == null ? null : data.events.find(item => Number(item.id) === Number(eventId));
+        if (eventId != null && !event) return;
+        const eventDate = event ? event.date : selectedCalendarDate || todayISO();
         const eventTypes = ["Latihan pribadi", "Latihan tim", "Les", "Pertandingan", "Sparring", "Turnamen", "Istirahat", "Lainnya"];
-        showModal("Tambah kegiatan", `<form><div class="form-grid"><div class="field full"><label>Agenda</label><input name="title" required maxlength="100" placeholder="Contoh: latihan tim sore"></div><div class="field"><label>Jenis kegiatan</label><select name="type">${eventTypes.map(type => `<option ${type === defaultType ? "selected" : ""}>${type}</option>`).join("")}</select></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${esc(eventDate)}" required></div><div class="field"><label>Waktu (opsional)</label><input name="time" type="time"></div><div class="field"><label>Tempat (opsional)</label><input name="location" maxlength="120" placeholder="Contoh: GOR Sekolah"></div><div class="field full"><label>Catatan (opsional)</label><textarea name="notes" maxlength="500" placeholder="Detail agenda"></textarea></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan kegiatan</button></div></form>`, fd => {
-          data.events.push({ id: Date.now(), title: String(fd.get("title")).trim(), type: fd.get("type"), date: fd.get("date"), time: fd.get("time"), location: String(fd.get("location") || "").trim(), notes: String(fd.get("notes") || "").trim() });
+        const selectedType = event ? event.type : defaultType;
+        const availableTypes = selectedType && !eventTypes.includes(selectedType) ? [selectedType, ...eventTypes] : eventTypes;
+        showModal(event ? "Edit kegiatan" : "Tambah kegiatan", `<form><div class="form-grid"><div class="field full"><label>Agenda</label><input name="title" required maxlength="100" value="${esc(event ? event.title : "")}" placeholder="Contoh: latihan tim sore"></div><div class="field"><label>Jenis kegiatan</label><select name="type">${availableTypes.map(type => `<option ${type === selectedType ? "selected" : ""}>${esc(type)}</option>`).join("")}</select></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${esc(eventDate)}" required></div><div class="field"><label>Waktu (opsional)</label><input name="time" type="time" value="${esc(event ? event.time || "" : "")}"></div><div class="field"><label>Tempat (opsional)</label><input name="location" maxlength="120" value="${esc(event ? event.location || "" : "")}" placeholder="Contoh: GOR Sekolah"></div><div class="field full"><label>Catatan (opsional)</label><textarea name="notes" maxlength="500" placeholder="Detail agenda">${esc(event ? event.notes || "" : "")}</textarea></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">${event ? "Simpan perubahan" : "Simpan kegiatan"}</button></div></form>`, async fd => {
+          const updated = {
+            title: String(fd.get("title") || "").trim(),
+            type: String(fd.get("type") || ""),
+            date: String(fd.get("date") || ""),
+            time: String(fd.get("time") || ""),
+            location: String(fd.get("location") || "").trim(),
+            notes: String(fd.get("notes") || "").trim()
+          };
+          if (!updated.title || !updated.date) return false;
+          if (event) {
+            const previous = { ...event };
+            Object.assign(event, updated);
+            if (!await persist()) {
+              Object.assign(event, previous);
+              return false;
+            }
+            toast("Kegiatan diperbarui.");
+            return "skip-persist";
+          }
+          data.events.push({ id: Date.now(), ...updated });
           toast("Agenda berhasil ditambahkan.");
         });
+      }
+      function reviewCalendarEventModal(eventId) {
+        const event = data.events.find(item => Number(item.id) === Number(eventId));
+        if (!event) return;
+        showModal(`${esc(event.title)} · Detail`, `<div class="note-item"><div class="note-title">Jenis kegiatan</div><div class="note-copy">${esc(event.type)}</div></div>
+          <div class="note-item"><div class="note-title">Tanggal dan waktu</div><div class="note-copy">${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}</div></div>
+          <div class="note-item"><div class="note-title">Tempat</div><div class="note-copy">${esc(event.location || "Belum diisi")}</div></div>
+          <div class="note-item"><div class="note-title">Catatan</div><div class="note-copy">${esc(event.notes || "Belum ada catatan.")}</div></div>
+          <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button type="button" class="button" data-calendar-event-edit="${event.id}">Edit</button></div>`);
+        $("#modal-root [data-calendar-event-edit]").addEventListener("click", () => addEventModal(null, event.id));
       }
       function addMatchModal(defaultDate, returnToCalendar) {
         showModal("Buat pertandingan dan pilih roster", `<form><div class="form-grid"><div class="field full"><label>Nama pertandingan</label><input name="name" required maxlength="100" placeholder="Uji Coba vs ..."></div><div class="field"><label>Lawan / turnamen</label><input name="opponent" maxlength="100" placeholder="Nama sekolah/tim"></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${esc(defaultDate || todayISO())}" required></div><div class="field full"><label>Tim yang bertanding</label>${matchTeamPickerMarkup("", false)}</div><div class="field full"><label>Pilih pemain yang hadir dan bertanding</label><div class="roster-pick" id="match-roster-picker"></div></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan pertandingan</button></div></form>`, async fd => {
@@ -1786,7 +1895,7 @@
         });
         bindMatchTeamPicker($("#modal-root"), null);
       }
-      function editMatchModal(matchId) {
+      function editMatchModal(matchId, returnToCalendar) {
         const match = data.matches.find(item => Number(item.id) === Number(matchId));
         if (!match) return;
         const roster = new Set((Array.isArray(match.playerIds) ? match.playerIds : data.players.map(player => player.id)).map(Number));
@@ -1813,14 +1922,18 @@
             return false;
           }
           selectedMatchId = match.id;
-          currentPage = "training";
+          if (returnToCalendar) {
+            currentPage = "schedule";
+            selectedCalendarDate = match.date;
+            calendarMonth = new Date(Number(match.date.slice(0, 4)), Number(match.date.slice(5, 7)) - 1, 1);
+          } else currentPage = "training";
           matchStatsDirty = false;
           toast("Pertandingan diperbarui.");
           return "skip-persist";
         });
         bindMatchTeamPicker($("#modal-root"), Array.from(roster));
       }
-      function previewMatchModal(matchId) {
+      function previewMatchModal(matchId, returnToCalendar) {
         const match = data.matches.find(item => Number(item.id) === Number(matchId));
         if (!match) return;
         const playerIds = Array.isArray(match.playerIds) ? match.playerIds.map(Number) : data.players.map(player => Number(player.id));
@@ -1841,7 +1954,7 @@
           <div class="note-item"><div class="note-title">Catatan / Evaluasi Umum</div><div class="note-copy">${esc(match.notes || "Belum diisi.")}</div></div>
           <div class="note-item"><div class="note-title">Evaluasi Individu</div>${evaluations || '<div class="note-copy">Belum ada evaluasi individu.</div>'}</div>
           <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button type="button" class="button secondary" data-preview-edit="${match.id}">Edit</button><button type="button" class="button" data-preview-live="${match.id}">Catat live</button></div>`);
-        $("#modal-root [data-preview-edit]").addEventListener("click", () => editMatchModal(match.id));
+        $("#modal-root [data-preview-edit]").addEventListener("click", () => editMatchModal(match.id, returnToCalendar));
         $("#modal-root [data-preview-live]").addEventListener("click", () => {
           selectedMatchId = match.id;
           currentPage = "matches";
@@ -2222,7 +2335,7 @@
         data.players.forEach(p => rows.push([p.name, p.position, p.number, p.className, p.height, p.weight, p.spikeReach, p.blockReach, attendanceRate(p.id), skillEfficiency(p.id, "Attack") == null ? "" : skillEfficiency(p.id, "Attack")]));
         return { title: "Laporan Progres Pemain VolleyDesk", filename: "laporan-progres-volleydesk.csv", rows };
       }
-      function reportDocument(report) {
+      function reportDocument(report, includeSignatures) {
         const headers = report.rows[0] || [];
         const rows = report.rows.slice(1);
         return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>${esc(report.title)}</title><style>
@@ -2231,8 +2344,9 @@
           h1{font-size:21px;margin:0 0 6px}p{color:#586174;margin:4px 0 18px}
           table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd2df;padding:7px;text-align:left;vertical-align:top}
           th{background:#eaf0ff;color:#203a85}tr:nth-child(even) td{background:#f7f9fc}
+          .pdf-signatures{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:38px 0 8px;break-inside:avoid}.pdf-signature-side{min-height:130px}.pdf-signature-right{text-align:right}.pdf-signature-space{height:68px}.pdf-signature-name{display:inline-block;min-width:58%;min-height:19px;border-top:1px solid #1f2937;padding-top:2px}
           @media print{body{margin:12mm}thead{display:table-header-group}tr{break-inside:avoid}}
-        </style></head><body>${letterheadMarkup(applicationBranding)}<h1>${esc(report.title)}</h1><p>${esc(applicationBranding.appName)} · Dicetak ${esc(formatDate(todayISO()))}${report.rangeLabel ? ` · Periode ${esc(report.rangeLabel)}` : ""} · ${rows.length} baris</p><table><thead><tr>${headers.map(cell => `<th>${esc(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+        </style></head><body>${letterheadMarkup(applicationBranding)}<h1>${esc(report.title)}</h1><p>${esc(applicationBranding.appName)} · Dicetak ${esc(formatDate(todayISO()))}${report.rangeLabel ? ` · Periode ${esc(report.rangeLabel)}` : ""} · ${rows.length} baris</p><table><thead><tr>${headers.map(cell => `<th>${esc(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>${includeSignatures ? pdfSignatureMarkup(applicationBranding) : ""}</body></html>`;
       }
       function playerStatsDocument(player) {
         const sessions = data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date));
@@ -2273,12 +2387,13 @@
           h1{font-size:21px;margin:0 0 5px}h2{font-size:14px;margin:20px 0 8px}p{color:#586174;margin:4px 0 12px}
           table{width:100%;border-collapse:collapse;margin:6px 0 14px}th,td{border:1px solid #cbd2df;padding:6px;text-align:left;vertical-align:top}
           th{background:#eaf0ff;color:#203a85}tr:nth-child(even) td{background:#f7f9fc}
+          .pdf-signatures{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:38px 0 8px;break-inside:avoid}.pdf-signature-side{min-height:130px}.pdf-signature-right{text-align:right}.pdf-signature-space{height:68px}.pdf-signature-name{display:inline-block;min-width:58%;min-height:19px;border-top:1px solid #1f2937;padding-top:2px}
           @page{size:landscape;margin:12mm}@media print{body{margin:0}thead{display:table-header-group}tr{break-inside:avoid}h2{break-after:avoid}}
         </style></head><body>${letterheadMarkup(applicationBranding)}<h1>Statistik pemain</h1><p>${esc(player.name)} · ${esc(player.position)} · #${esc(player.number)} · ${esc(player.className)}<br>${esc(applicationBranding.appName)} · Dicetak ${esc(formatDate(todayISO()))}</p>
           <h2>Ringkasan</h2>${table(["Metrik", "Capaian"], summaries, "")}
           <h2>Riwayat kehadiran</h2>${table(["Tanggal", "Sesi", "Status"], attendanceRows, "Belum ada sesi latihan.")}
           <h2>Riwayat antropometri</h2>${table(["Tanggal pengukuran", "Tinggi (cm)", "Berat badan (kg)", "Vertical jump (cm)", "Spike reach (cm)", "Block reach (cm)"], historyRows, "Riwayat antropometri belum tersedia.")}
-          <h2>Statistik setiap pertandingan</h2>${table(["Pertandingan", "Lawan / turnamen", "Tanggal", "Hasil set", ...skills.map(([, label]) => label)], matchRows, "Belum ada statistik pertandingan.")}</body></html>`;
+          <h2>Statistik setiap pertandingan</h2>${table(["Pertandingan", "Lawan / turnamen", "Tanggal", "Hasil set", ...skills.map(([, label]) => label)], matchRows, "Belum ada statistik pertandingan.")}${pdfSignatureMarkup(applicationBranding)}</body></html>`;
       }
       function printPlayerStats(playerId) {
         const player = playerById(playerId);
@@ -2296,7 +2411,7 @@
       }
       function exportReportDocument(format, reportType) {
         const report = reportType && typeof reportType === "object" ? reportType : reportData(reportType);
-        const html = reportDocument(report);
+        const html = reportDocument(report, format === "pdf");
         if (format === "word") {
           const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
           const url = URL.createObjectURL(blob);
@@ -2493,6 +2608,18 @@
           calendarMonth = new Date(Number(selectedCalendarDate.slice(0, 4)), Number(selectedCalendarDate.slice(5, 7)) - 1, 1);
           if (calendarView === "year") calendarView = "month";
           render();
+        }));
+        $("#content").querySelectorAll("[data-calendar-detail-source]").forEach(el => el.addEventListener("click", () => {
+          const id = el.dataset.calendarDetailId;
+          if (el.dataset.calendarDetailSource === "event") reviewCalendarEventModal(id);
+          else if (el.dataset.calendarDetailSource === "session") reviewSessionModal(id);
+          else if (el.dataset.calendarDetailSource === "match") previewMatchModal(id, true);
+        }));
+        $("#content").querySelectorAll("[data-calendar-edit-source]").forEach(el => el.addEventListener("click", () => {
+          const id = el.dataset.calendarEditId;
+          if (el.dataset.calendarEditSource === "event") addEventModal(null, id);
+          else if (el.dataset.calendarEditSource === "session") editSessionModal(id);
+          else if (el.dataset.calendarEditSource === "match") editMatchModal(id, true);
         }));
         $("#content").querySelectorAll("[data-calendar-month]").forEach(el => el.addEventListener("click", () => {
           const direction = el.dataset.calendarMonth === "next" ? 1 : -1;
@@ -2735,7 +2862,14 @@
           data.teams = data.teams.filter(item => Number(item.id) !== Number(team.id));
           if (await persist()) { render(); toast("Tim dihapus."); }
         }));
-        $("#content").querySelectorAll("[data-delete-event]").forEach(el => el.addEventListener("click", () => { data.events = data.events.filter(e => Number(e.id) !== Number(el.dataset.deleteEvent)); persist(); render(); toast("Agenda dihapus."); }));
+        $("#content").querySelectorAll("[data-delete-event]").forEach(el => el.addEventListener("click", async () => {
+          const event = data.events.find(item => Number(item.id) === Number(el.dataset.deleteEvent));
+          if (!event || !window.confirm(`Hapus kegiatan "${event.title}"?`)) return;
+          const index = data.events.indexOf(event);
+          data.events.splice(index, 1);
+          if (await persist()) { render(); toast("Kegiatan dihapus."); }
+          else { data.events.splice(index, 0, event); render(); }
+        }));
         $("#content").querySelectorAll("[data-delete-session]").forEach(el => el.addEventListener("click", async () => {
           const session = data.sessions.find(item => Number(item.id) === Number(el.dataset.deleteSession));
           if (!session || !window.confirm(`Hapus sesi "${session.title}" beserta catatan kehadiran dan evaluasinya?`)) return;

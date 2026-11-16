@@ -44,7 +44,15 @@ const defaultBranding = {
   titleItalic: false,
   subtitleBold: false,
   subtitleItalic: false,
-  letterheadLine: true
+  letterheadLine: true,
+  pdfSignaturesEnabled: true,
+  pdfPrincipalNameVisible: true,
+  pdfPrincipalIntro: "Mengetahui,",
+  pdfPrincipalRole: "Kepala Sekolah",
+  pdfPrincipalName: "",
+  pdfSignaturePlace: "",
+  pdfCoachRole: "Pelatih",
+  pdfCoachName: ""
 };
 const brandingFontFamilies = new Set([
   "Arial, sans-serif",
@@ -377,7 +385,15 @@ function sanitizeBranding(input, previous, role) {
     titleItalic: branding.titleItalic == null ? defaultBranding.titleItalic : branding.titleItalic === true,
     subtitleBold: branding.subtitleBold == null ? defaultBranding.subtitleBold : branding.subtitleBold === true,
     subtitleItalic: branding.subtitleItalic == null ? defaultBranding.subtitleItalic : branding.subtitleItalic === true,
-    letterheadLine: branding.letterheadLine !== false
+    letterheadLine: branding.letterheadLine !== false,
+    pdfSignaturesEnabled: branding.pdfSignaturesEnabled == null ? defaultBranding.pdfSignaturesEnabled : branding.pdfSignaturesEnabled === true,
+    pdfPrincipalNameVisible: branding.pdfPrincipalNameVisible == null ? defaultBranding.pdfPrincipalNameVisible : branding.pdfPrincipalNameVisible === true,
+    pdfPrincipalIntro: stringValue("pdfPrincipalIntro", 80),
+    pdfPrincipalRole: stringValue("pdfPrincipalRole", 80),
+    pdfPrincipalName: stringValue("pdfPrincipalName", 80),
+    pdfSignaturePlace: stringValue("pdfSignaturePlace", 80),
+    pdfCoachRole: stringValue("pdfCoachRole", 80),
+    pdfCoachName: stringValue("pdfCoachName", 80)
   };
 }
 
