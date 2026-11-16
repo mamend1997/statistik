@@ -300,6 +300,11 @@
     .team-logo-fallback { display: grid; place-items: center; color: var(--blue); font-size: 13px; font-weight: 850; background: var(--blue-soft); }
     .team-actions { gap: 4px; }
     .team-roster { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 7px; margin-top: 16px; }
+    .team-roster-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 2px 0; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; list-style: none; }
+    .team-roster-toggle::-webkit-details-marker { display: none; }
+    .team-roster-toggle::after { content: "⌄"; color: var(--blue); font-size: 17px; line-height: 1; transition: transform .18s ease; }
+    .team-roster-details[open] .team-roster-toggle::after { transform: rotate(180deg); }
+    .team-roster-details .team-roster { margin-top: 10px; }
     .team-member { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); font-size: 11px; font-weight: 700; }
     .team-member > span:last-child { min-width: 0; overflow-wrap: anywhere; }
     .team-member small { display: block; color: var(--muted); font-size: 9px; font-weight: 500; }

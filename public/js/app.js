@@ -895,8 +895,11 @@
         const teams = (data.teams || []).slice().sort((a, b) => a.name.localeCompare(b.name));
         const cards = teams.map(team => {
           const members = data.players.filter(player => (team.playerIds || []).some(id => Number(id) === Number(player.id)));
+          const roster = members.length
+            ? members.map(player => `<span class="team-member"><span class="player-avatar">${initials(player.name)}</span><span>${esc(player.name)}<small>${esc(player.position)} · #${esc(player.number)}</small></span></span>`).join("")
+            : '<div class="empty team-empty">Belum ada pemain di tim ini.</div>';
           return `<article class="card team-card"><div class="team-card-head"><div class="team-identity">${team.logo ? `<img class="team-logo" src="${esc(team.logo)}" alt="Logo ${esc(team.name)}">` : `<span class="team-logo team-logo-fallback">${esc(initials(team.name))}</span>`}<div><h2 class="card-title">${esc(team.name)}</h2><p class="card-sub">${members.length} pemain · dapat bergabung di beberapa tim</p></div></div><div class="team-actions"><button class="button secondary small" data-edit-team="${team.id}">Ubah</button><button class="close-x" data-delete-team="${team.id}" aria-label="Hapus tim ${esc(team.name)}">×</button></div></div>
-            <div class="team-roster">${members.length ? members.map(player => `<span class="team-member"><span class="player-avatar">${initials(player.name)}</span><span>${esc(player.name)}<small>${esc(player.position)} · #${esc(player.number)}</small></span></span>`).join("") : '<div class="empty team-empty">Belum ada pemain di tim ini.</div>'}</div></article>`;
+            <details class="team-roster-details"><summary class="team-roster-toggle">Daftar pemain (${members.length})</summary><div class="team-roster">${roster}</div></details></article>`;
         }).join("");
         return `${heading("Manajemen tim", "Buat beberapa tim, pasangkan pemain, dan kelola identitas tiap tim.", '<button class="button" data-action="add-team">＋ Buat tim</button>')}
           <div class="team-grid">${cards || '<section class="card empty">Belum ada tim. Buat tim pertama untuk mulai mengatur skuad.</section>'}</div>
