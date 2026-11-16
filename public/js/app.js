@@ -129,7 +129,10 @@
       const shortMonth = value => dateObj(value).toLocaleDateString("id-ID", { month: "short" }).replace(".", "");
       const activeRole = () => data.role || "coach";
       const playerById = id => data.players.find(p => Number(p.id) === Number(id));
-      const visiblePages = () => pages.filter(p => p.roles.includes(activeRole()) && (data.menuVisibility[activeRole()] || []).includes(p.id));
+      const visiblePages = () => pages.filter(p =>
+        (p.id !== "settings" || activeRole() === "admin") &&
+        (data.menuVisibility[activeRole()] || []).includes(p.id)
+      );
       function applyBranding(branding) {
         applicationBranding = {
           logo: branding && branding.logo || "",
@@ -565,7 +568,7 @@
       }
       function settingsPage() {
         const role = settingsRoleKey;
-        const allowed = data.menuVisibility[role] || [];
+        const allowed = (data.menuVisibility[role] || []).filter(id => id !== "settings" || role === "admin");
         const bottomAllowed = (data.bottomNav && data.bottomNav[role] || []).filter(id => allowed.includes(id));
         const backup = backupSettings || { enabled: false, time: "23:00", timezone: "Asia/Jakarta", telegramConfigured: false };
         const backupStatus = backup.lastRunAt
@@ -573,11 +576,11 @@
           : "Belum ada pengiriman backup.";
         return `${heading("Pengaturan aplikasi & akses", "Atur logo aplikasi, hak akses, akun pengguna, dan backup data.", '<button class="button secondary" data-action="add-user">＋ Tambah akun</button>')}
           <div class="grid dashboard-grid"><section class="card"><div class="card-head"><div><h2 class="card-title">Konfigurasi menu dinamis</h2><p class="card-sub">Atur menu samping dan maksimal lima menu navigasi bawah per role.</p></div><select class="select-mini" id="settings-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}" ${role === id ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
-          <div style="padding:0 19px 18px">${pages.map(p => `<div class="switch-row"><div><div class="note-title">${esc(p.label)}</div><div class="note-copy">Atur visibilitas menu untuk ${esc(roles[role])}</div></div><input class="switch menu-switch" type="checkbox" data-menu="${p.id}" ${allowed.includes(p.id) ? "checked" : ""} ${p.roles.includes(role) ? "" : "disabled"} aria-label="Izinkan menu ${esc(p.label)}"></div>`).join("")}
-          <div class="field" style="margin-top:15px"><label for="highlight-select">Menu sorotan / pin role ini</label><select id="highlight-select">${pages.filter(p => allowed.includes(p.id) && p.roles.includes(role)).map(p => `<option value="${p.id}" ${data.highlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div>
+          <div style="padding:0 19px 18px">${pages.map(p => `<div class="switch-row"><div><div class="note-title">${esc(p.label)}</div><div class="note-copy">Atur visibilitas menu untuk ${esc(roles[role])}</div></div><input class="switch menu-switch" type="checkbox" data-menu="${p.id}" ${allowed.includes(p.id) ? "checked" : ""} ${p.id === "settings" ? "disabled" : ""} aria-label="Izinkan menu ${esc(p.label)}"></div>`).join("")}
+          <div class="field" style="margin-top:15px"><label for="highlight-select">Menu sorotan / pin role ini</label><select id="highlight-select" ${allowed.length ? "" : "disabled"}>${pages.filter(p => allowed.includes(p.id)).map(p => `<option value="${p.id}" ${data.highlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div>
           <h3 class="card-title" style="margin:22px 0 4px">Navigasi bawah HP · maksimal 5 menu</h3><p class="card-sub">Pilih menu yang tampil dan atur menu sorotannya.</p>
-          ${pages.filter(p => p.roles.includes(role) && allowed.includes(p.id)).map(p => `<label class="switch-row bottom-menu-option"><span>${esc(p.label)}</span><input class="switch bottom-menu-switch" type="checkbox" data-bottom-menu="${p.id}" ${bottomAllowed.includes(p.id) ? "checked" : ""} aria-label="Tampilkan ${esc(p.label)} di navigasi bawah"></label>`).join("")}
-          <div class="field" style="margin-top:12px"><label for="bottom-highlight-select">Menu highlight navigasi bawah</label><select id="bottom-highlight-select">${pages.filter(p => bottomAllowed.includes(p.id)).map(p => `<option value="${p.id}" ${data.bottomHighlights && data.bottomHighlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div></div></section>
+          ${pages.filter(p => allowed.includes(p.id) && (p.id !== "settings" || role === "admin")).map(p => `<label class="switch-row bottom-menu-option"><span>${esc(p.label)}</span><input class="switch bottom-menu-switch" type="checkbox" data-bottom-menu="${p.id}" ${bottomAllowed.includes(p.id) ? "checked" : ""} aria-label="Tampilkan ${esc(p.label)} di navigasi bawah"></label>`).join("")}
+          <div class="field" style="margin-top:12px"><label for="bottom-highlight-select">Menu highlight navigasi bawah</label><select id="bottom-highlight-select" ${bottomAllowed.length ? "" : "disabled"}>${pages.filter(p => bottomAllowed.includes(p.id)).map(p => `<option value="${p.id}" ${data.bottomHighlights && data.bottomHighlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div></div></section>
           <section class="card side-note"><h2 class="card-title">Akun pengguna</h2><p class="card-sub">Akun tersimpan di database VolleyDesk</p>${serverUsers.map(u => `<div class="note-item"><div class="account-row"><div class="account-identity">${u.avatar ? `<img class="account-avatar" src="${esc(u.avatar)}" alt="">` : `<span class="account-avatar account-avatar-fallback">${esc(initials(u.name))}</span>`}<div><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}${u.playerId && playerById(u.playerId) ? ` · ${esc(playerById(u.playerId).name)}` : ""}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div></div><div class="account-actions"><button class="button secondary small" data-edit-user="${u.id}">Edit</button><button class="close-x" data-delete-user="${u.id}" aria-label="Hapus akun ${esc(u.name)}" ${Number(u.id) === Number(signedInUser.id) ? "disabled" : ""}>×</button></div></div></div>`).join("")}
           <div class="privacy-note">Akses akun diverifikasi oleh server. Hanya satu akun admin yang dapat terdaftar.</div></section></div>
           <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Logo aplikasi & favicon</h2><p class="card-sub">Logo tampil di halaman login dan menu utama; favicon tampil pada tab browser.</p></div></div>
@@ -1163,6 +1166,8 @@
       function applyServerState(state) {
         const hasBottomConfig = Boolean(state && state.bottomNav);
         const needsTeamMenuMigration = !state || Number(state.menuConfigVersion || 0) < 1;
+        const storedAdminMenus = state && state.menuVisibility && state.menuVisibility.admin;
+        const needsAdminSettingsMigration = !Array.isArray(storedAdminMenus) || !storedAdminMenus.includes("settings");
         data = Object.assign(JSON.parse(JSON.stringify(defaultData)), state || {});
         data.menuVisibility = Object.assign({}, defaultData.menuVisibility, data.menuVisibility || {});
         data.highlights = Object.assign({}, defaultData.highlights, data.highlights || {});
@@ -1172,6 +1177,7 @@
         data.teams = Array.isArray(data.teams) ? data.teams : [];
         data.branding = Object.assign({ logo: "", favicon: "" }, applicationBranding, data.branding || {});
         data.menuConfigVersion = 1;
+        if (!data.menuVisibility.admin.includes("settings")) data.menuVisibility.admin.push("settings");
         if (needsTeamMenuMigration) {
           ["admin", "coach"].forEach(role => {
             if (!data.menuVisibility[role].includes("teams")) data.menuVisibility[role].push("teams");
@@ -1187,7 +1193,7 @@
         selectedSessionId = data.sessions[0] ? data.sessions[0].id : null;
         selectedMatchId = data.matches[0] ? data.matches[0].id : null;
         selectedTargetPlayerId = signedInUser.role === "player" ? signedInUser.playerId : (data.players[0] ? data.players[0].id : null);
-        return needsTeamMenuMigration;
+        return needsTeamMenuMigration || needsAdminSettingsMigration;
       }
       async function saveBackupSchedule() {
         try {
@@ -1398,16 +1404,41 @@
         if (playerSearch) playerSearch.addEventListener("input", () => { searchTerm = playerSearch.value; const pos = playerSearch.selectionStart; render(); const field = $("#player-search"); field.focus(); field.setSelectionRange(pos, pos); });
         const settingsRole = $("#settings-role");
         if (settingsRole) settingsRole.addEventListener("change", () => { settingsRoleKey = settingsRole.value; render(); });
-        $("#content").querySelectorAll(".menu-switch").forEach(el => el.addEventListener("change", () => {
-          const role = settingsRoleKey, list = data.menuVisibility[role] || [];
-          data.menuVisibility[role] = el.checked ? Array.from(new Set(list.concat(el.dataset.menu))) : list.filter(id => id !== el.dataset.menu);
-          data.bottomNav[role] = (data.bottomNav[role] || []).filter(id => data.menuVisibility[role].includes(id));
-          if (!data.bottomNav[role].includes(data.bottomHighlights[role])) data.bottomHighlights[role] = data.bottomNav[role][0] || "";
-          persist(); render();
+        $("#content").querySelectorAll(".menu-switch").forEach(el => el.addEventListener("change", async () => {
+          const role = settingsRoleKey;
+          const previousMenus = (data.menuVisibility[role] || []).slice();
+          const previousBottom = (data.bottomNav[role] || []).slice();
+          const previousHighlight = data.highlights[role];
+          const previousBottomHighlight = data.bottomHighlights[role];
+          data.menuVisibility[role] = el.checked
+            ? Array.from(new Set(previousMenus.concat(el.dataset.menu)))
+            : previousMenus.filter(id => id !== el.dataset.menu);
+          data.bottomNav[role] = previousBottom.filter(id => data.menuVisibility[role].includes(id));
+          if (!data.menuVisibility[role].includes(data.highlights[role])) {
+            data.highlights[role] = data.menuVisibility[role][0] || "";
+          }
+          if (!data.bottomNav[role].includes(data.bottomHighlights[role])) {
+            data.bottomHighlights[role] = data.bottomNav[role][0] || "";
+          }
+          if (await persist()) {
+            render();
+            toast("Hak akses menu diperbarui.");
+          } else {
+            data.menuVisibility[role] = previousMenus;
+            data.bottomNav[role] = previousBottom;
+            data.highlights[role] = previousHighlight;
+            data.bottomHighlights[role] = previousBottomHighlight;
+            render();
+          }
         }));
         const highlight = $("#highlight-select");
-        if (highlight) highlight.addEventListener("change", () => { data.highlights[settingsRoleKey] = highlight.value; persist(); render(); toast("Menu sorotan diperbarui."); });
-        $("#content").querySelectorAll(".bottom-menu-switch").forEach(el => el.addEventListener("change", () => {
+        if (highlight) highlight.addEventListener("change", async () => {
+          const role = settingsRoleKey, previous = data.highlights[role];
+          data.highlights[role] = highlight.value;
+          if (await persist()) { render(); toast("Menu sorotan diperbarui."); }
+          else { data.highlights[role] = previous; render(); }
+        });
+        $("#content").querySelectorAll(".bottom-menu-switch").forEach(el => el.addEventListener("change", async () => {
           const role = settingsRoleKey;
           const list = (data.bottomNav[role] || []).filter(id => data.menuVisibility[role].includes(id));
           if (el.checked && list.length >= 5) {
@@ -1415,14 +1446,19 @@
             toast("Navigasi bawah maksimal lima menu.");
             return;
           }
+          const previous = list.slice();
+          const previousHighlight = data.bottomHighlights[role];
           data.bottomNav[role] = el.checked ? list.concat(el.dataset.bottomMenu) : list.filter(id => id !== el.dataset.bottomMenu);
           if (!data.bottomNav[role].includes(data.bottomHighlights[role])) data.bottomHighlights[role] = data.bottomNav[role][0] || "";
-          persist(); render();
+          if (await persist()) { render(); toast("Navigasi bawah diperbarui."); }
+          else { data.bottomNav[role] = previous; data.bottomHighlights[role] = previousHighlight; render(); }
         }));
         const bottomHighlight = $("#bottom-highlight-select");
-        if (bottomHighlight) bottomHighlight.addEventListener("change", () => {
-          data.bottomHighlights[settingsRoleKey] = bottomHighlight.value;
-          persist(); render(); toast("Highlight navigasi bawah diperbarui.");
+        if (bottomHighlight) bottomHighlight.addEventListener("change", async () => {
+          const role = settingsRoleKey, previous = data.bottomHighlights[role];
+          data.bottomHighlights[role] = bottomHighlight.value;
+          if (await persist()) { render(); toast("Highlight navigasi bawah diperbarui."); }
+          else { data.bottomHighlights[role] = previous; render(); }
         });
         ["logo", "favicon"].forEach(type => {
           const input = $(`#branding-${type}-file`);
