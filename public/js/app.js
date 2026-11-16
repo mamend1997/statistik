@@ -853,7 +853,7 @@
           toast("Statistik aksi tersimpan.");
         });
       }
-      function profileModal() {
+      function accountProfileModal() {
         const avatar = signedInUser.avatar || "";
         const profileSummary = `<div class="profile-summary">${avatar ? `<img class="profile-avatar-large" src="${esc(avatar)}" alt="Foto ${esc(signedInUser.name)}">` : `<span class="profile-avatar-large profile-avatar-fallback">${esc(initials(signedInUser.name))}</span>`}<div><strong>${esc(signedInUser.name)}</strong><span>${esc(roles[signedInUser.role] || signedInUser.role)}</span><small>${esc(signedInUser.email)}</small>${signedInUser.createdAt ? `<small>Terdaftar ${formatDate(signedInUser.createdAt.slice(0, 10))}</small>` : ""}</div></div>`;
         showModal("Profil pengguna", `<div class="profile-overview">${profileSummary}</div><form><div class="form-grid">
@@ -1528,7 +1528,7 @@
           toast(error.message);
         }
       });
-      $("#profile-button").addEventListener("click", profileModal);
+      $("#profile-button").addEventListener("click", accountProfileModal);
       async function initializeApp() {
         $("#login-screen").hidden = false;
         try {
