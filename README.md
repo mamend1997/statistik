@@ -19,7 +19,7 @@ SQLite disimpan pada `SQLITE_PATH` (default `./data/volleydesk.sqlite`). Direkto
 
 ## Database dan sesi
 
-Data aplikasi dan akun disimpan server-side di SQLite. Kata sandi di-hash, sesi login memakai cookie HttpOnly, dan endpoint penulisan menerapkan pembatasan role. Untuk Railway, pasang persistent volume pada `/data` dan atur `SQLITE_PATH=/data/volleydesk.sqlite`; tanpa volume, filesystem container dapat hilang saat deploy atau restart.
+Data aplikasi, akun, dan sesi login disimpan server-side di SQLite. Cookie sesi HttpOnly berlaku 30 hari dan sesi tetap aktif saat server restart atau deploy selama memakai database yang sama. Untuk Railway, pasang persistent volume pada `/data` dan atur `SQLITE_PATH=/data/volleydesk.sqlite`; tanpa volume, filesystem container dapat hilang saat deploy atau restart sehingga akun, data, dan sesi ikut hilang. Sesi juga berakhir setelah logout atau perubahan kata sandi.
 
 Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama. Admin/pelatih dapat mengimpor daftar pemain dari Excel `.xlsx` atau CSV di menu Data pemain; template `.xlsx` dapat diunduh di halaman tersebut. Kolom jenis kelamin dan tanggal lahir (format `YYYY-MM-DD`) bersifat opsional, sehingga template lama tetap kompatibel.
 
