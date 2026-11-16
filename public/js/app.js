@@ -6,7 +6,7 @@
       const roles = {
         admin: "Admin / Operator",
         principal: "Kepala Sekolah",
-        curriculum: "Wakasek Kurikulum",
+        curriculum: "Wakasek Kesiswaan",
         coach: "Pelatih",
         player: "Pemain"
       };
@@ -90,6 +90,7 @@
       let settingsRoleKey = data.role || "coach";
       let selectedSessionId = data.sessions[0] ? data.sessions[0].id : null;
       let selectedMatchId = data.matches[0] ? data.matches[0].id : null;
+      let matchStatsDirty = false;
       let selectedTargetPlayerId = null;
       let selectedTargetPeriod = "week";
       let calendarMonth = new Date();
@@ -262,6 +263,22 @@
           return `<button class="bottom-nav-btn ${currentPage === id ? "active" : ""} ${bottomHighlight === id ? "highlight" : ""}" data-page="${id}" aria-label="${esc(page.label)}"><span class="nav-icon">${page.icon}</span><span>${esc(page.label)}</span></button>`;
         }).join("");
         bottomNav.querySelectorAll("[data-page]").forEach(button => button.addEventListener("click", () => { currentPage = button.dataset.page; render(); }));
+      }
+      function syncProfileButton() {
+        const button = $("#profile-button");
+        button.setAttribute("aria-label", "Buka profil pengguna");
+        button.title = "Profil pengguna";
+        if (signedInUser && signedInUser.avatar) {
+          button.textContent = "";
+          const image = document.createElement("img");
+          image.src = signedInUser.avatar;
+          image.alt = "";
+          image.className = "profile-button-avatar";
+          button.appendChild(image);
+        } else button.textContent = "Profil";
+        const label = document.createElement("span");
+        label.textContent = "Profil";
+        button.appendChild(label);
       }
       function heading(title, subtitle, action) {
         const p = pages.find(x => x.id === currentPage);
@@ -463,11 +480,11 @@
             const successes = stats.reduce((sum, stat) => sum + Number(stat.success || 0), 0);
             const errors = stats.reduce((sum, stat) => sum + Number(stat.errors || 0), 0);
             const attempts = successes + errors;
-            return { date: item.date, title: item.opponent ? `${item.name} · ${item.opponent}` : item.name, detail: `${successes} sukses · ${errors} gagal · ${attempts ? Math.round(successes / attempts * 100) : 0}% efisiensi`, type: "Statistik laga" };
+            return { date: item.date, title: item.opponent ? `${item.name} · ${item.opponent}` : item.name, detail: `${successes} sukses · ${errors} gagal · ${attempts ? Math.round(successes / attempts * 100) : 0}% efisiensi`, type: "Statistik laga", matchId: item.id };
           }),
           ...matchActivities.map(event => ({ date: event.date, title: event.title, detail: [event.time, event.location].filter(Boolean).join(" · "), type: event.type }))
         ].sort((a, b) => b.date.localeCompare(a.date));
-        const recapRows = rows => rows.length ? `<div class="event-list">${rows.map(row => `<div class="event-row"><div class="date-tile"><strong>${new Date(`${row.date}T12:00:00`).getDate()}</strong><span>${shortMonth(row.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(row.title)}</div><div class="event-meta">${formatDate(row.date)}${row.detail ? ` · ${esc(row.detail)}` : ""}</div></div><span class="tag blue">${esc(row.type)}</span></div>`).join("")}</div>` : '<div class="empty">Belum ada data untuk direkap.</div>';
+        const recapRows = rows => rows.length ? `<div class="event-list">${rows.map(row => `<div class="event-row"><div class="date-tile"><strong>${new Date(`${row.date}T12:00:00`).getDate()}</strong><span>${shortMonth(row.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(row.title)}</div><div class="event-meta">${formatDate(row.date)}${row.detail ? ` · ${esc(row.detail)}` : ""}</div></div><span class="tag blue">${esc(row.type)}</span>${row.matchId ? `<button class="button secondary small" data-edit-match="${row.matchId}">Edit</button>` : ""}</div>`).join("")}</div>` : '<div class="empty">Belum ada data untuk direkap.</div>';
         return `${heading("Statistik", "Rekap kegiatan latihan dan pertandingan, serta pencatatan performa live.", '<button class="button" data-action="add-match">＋ Pertandingan</button>')}
           <div class="grid metrics" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px">
             ${metric("Sesi latihan", sessions.length + activities.length, "Sesi dan kegiatan", "↗")}
@@ -479,14 +496,15 @@
             <section class="card"><div class="card-head"><div><h2 class="card-title">Rekap latihan</h2><p class="card-sub">${trainingRows.length} sesi dan kegiatan</p></div><button class="button secondary small" data-page="training">Buka Latihan</button></div>${recapRows(trainingRows)}</section>
             <section class="card"><div class="card-head"><div><h2 class="card-title">Rekap pertandingan</h2><p class="card-sub">${matchRows.length} laga dan agenda</p></div></div>${recapRows(matchRows)}</section>
           </div>
-          <section class="card"><div class="attendance-head"><div><div class="card-title">Catat live pertandingan</div><div class="card-sub">${match ? esc(match.opponent || match.name) + " · " + formatDate(match.date) + ` · ${players.length} pemain` : "Pilih atau tambahkan pertandingan"}</div></div><div class="inline-form"><select class="select-mini" id="match-select">${data.matches.map(item => `<option value="${item.id}" ${match && Number(item.id) === Number(match.id) ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select><button class="button secondary small" data-action="add-stat" ${match ? "" : "disabled"}>＋ Input manual</button></div></div>
+          <section class="card"><div class="attendance-head"><div><div class="card-title">Catat live pertandingan</div><div class="card-sub">${match ? esc(match.opponent || match.name) + " · " + formatDate(match.date) + ` · ${players.length} pemain` + (matchStatsDirty ? " · perubahan belum disimpan" : "") : "Pilih atau tambahkan pertandingan"}</div></div><div class="inline-form"><select class="select-mini" id="match-select">${data.matches.map(item => `<option value="${item.id}" ${match && Number(item.id) === Number(match.id) ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select><button class="button secondary small" data-action="add-stat" ${match ? "" : "disabled"}>＋ Input manual</button><button class="button small" data-action="save-live-stats" ${match && matchStatsDirty ? "" : "disabled"}>Simpan statistik</button></div></div>
           ${match ? `<div class="live-roster">${players.length ? players.map(player => `<article class="card live-player"><div class="player-name"><span class="player-avatar">${initials(player.name)}</span><span>${esc(player.name)}<span class="position">${esc(player.position)} · #${esc(player.number)}</span></span></div><div class="live-skills">${["Block", "Attack", "Serve", "Receive"].map(skill => {
             const stat = (match.stats || []).find(item => Number(item.playerId) === Number(player.id) && item.skill === skill) || { success: 0, errors: 0 };
             const label = skill === "Attack" ? "Serangan" : skill === "Block" ? "Blok" : skill === "Serve" ? "Servis" : "Receive";
-            return `<div class="live-skill"><div><strong>${label}</strong><span>${Number(stat.success || 0)} sukses · ${Number(stat.errors || 0)} gagal</span></div><button class="button small live-success" data-live-stat="${player.id}:${skill}:success" aria-label="${skill} sukses ${esc(player.name)}">✓</button><button class="button orange small" data-live-stat="${player.id}:${skill}:errors" aria-label="${skill} gagal ${esc(player.name)}">×</button></div>`;
+            const successes = Number(stat.success || 0), errors = Number(stat.errors || 0);
+            return `<div class="live-skill"><div><strong>${label}</strong><span>${successes} sukses · ${errors} gagal</span></div><button class="button secondary small" data-live-stat="${player.id}:${skill}:success:-1" aria-label="Kurangi sukses ${label} ${esc(player.name)}" title="Koreksi sukses" ${successes ? "" : "disabled"}>−</button><button class="button small live-success" data-live-stat="${player.id}:${skill}:success:1" aria-label="Tambah sukses ${label} ${esc(player.name)}" title="Tambah sukses">+</button><button class="button secondary small" data-live-stat="${player.id}:${skill}:errors:-1" aria-label="Kurangi gagal ${label} ${esc(player.name)}" title="Koreksi gagal" ${errors ? "" : "disabled"}>−</button><button class="button orange small" data-live-stat="${player.id}:${skill}:errors:1" aria-label="Tambah gagal ${label} ${esc(player.name)}" title="Tambah gagal">+</button></div>`;
           }).join("")}</div></article>`).join("") : '<div class="empty">Tambahkan pemain dan pilih roster pertandingan untuk mulai mencatat.</div>'}</div>
           <details class="manual-stats"><summary>Statistik manual yang sudah dicatat</summary>${match.stats && match.stats.length ? `<div class="table-wrap"><table><thead><tr><th>Pemain</th><th>Teknik</th><th>Sukses</th><th>Gagal</th><th></th></tr></thead><tbody>${match.stats.map(stat => { const player = playerById(stat.playerId); return player ? `<tr><td>${esc(player.name)}</td><td>${esc(stat.skill)}</td><td>${Number(stat.success || 0)}</td><td>${Number(stat.errors || 0)}</td><td><button class="close-x" data-delete-stat="${match.id}:${player.id}:${esc(stat.skill)}">×</button></td></tr>` : ""; }).join("")}</tbody></table></div>` : '<div class="empty">Belum ada aksi dicatat.</div>'}</details>` : '<div class="empty">Buat pertandingan untuk mulai mencatat statistik.</div>'}
-          </section><p class="privacy-note">Setiap tombol mencatat satu aksi sukses atau gagal. Statistik tersimpan per pemain, pertandingan, dan teknik.</p>`;
+          </section><p class="privacy-note">Gunakan + untuk mencatat aksi dan − untuk mengoreksi salah klik. Simpan statistik setelah selesai mencatat.</p>`;
       }
       function targetsPage() {
         const player = activeRole() === "player"
@@ -539,10 +557,10 @@
       }
       function reportsPage() {
         const statusCounts = ["Hadir", "Izin", "Sakit", "Alpa"].map(status => ({ status, count: data.sessions.reduce((n, s) => n + Object.values(s.attendance || {}).filter(x => x === status).length, 0) }));
-        return `${heading("Laporan & ekspor", "Ringkasan progres siswa dan rekap kedisiplinan untuk evaluasi sekolah.", '<div style="display:flex;gap:7px;flex-wrap:wrap"><button class="button secondary" data-action="export-grades">↓ Nilai rapor</button><button class="button" data-action="export-report">↓ Ekspor progres</button></div>')}
+        return `${heading("Laporan & ekspor", "Ringkasan progres siswa dan rekap kedisiplinan untuk evaluasi sekolah.", '<div style="display:flex;gap:7px;flex-wrap:wrap"><button class="button secondary" data-action="export-grades">↓ Nilai rapor CSV</button><button class="button secondary" data-action="export-pdf">↓ PDF progres</button><button class="button secondary" data-action="export-word">↓ Word progres</button><button class="button" data-action="export-report">↓ Ekspor progres CSV</button></div>')}
           <div class="grid metrics">${metric("Kehadiran", allAttendanceRate() + "%", "Dari seluruh catatan absensi", "✓")}${metric("Total pemain", data.players.length, "Pemain terdaftar", "♟")}${metric("Sesi latihan", data.sessions.length, "Log pertemuan", "↗")}${metric("Pertandingan", data.matches.length, "Laga dengan statistik", "◎")}</div>
           <div class="grid dashboard-grid"><section class="card"><div class="card-head"><div><h2 class="card-title">Progres pemain</h2><p class="card-sub">Atur predikat ekskul untuk rekap rapor sekolah</p></div></div><div class="table-wrap"><table><thead><tr><th>Pemain</th><th>Kelas / posisi</th><th>Kehadiran</th><th>Spike reach</th><th>Attack eff.</th><th>Predikat rapor</th></tr></thead><tbody>${data.players.map(p => `<tr><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span>${esc(p.name)}</div></td><td>${esc(p.className)} · ${esc(p.position)}</td><td>${attendanceRate(p.id)}%</td><td>${p.spikeReach} cm</td><td>${skillEfficiency(p.id, "Attack") === null ? "—" : skillEfficiency(p.id, "Attack") + "%"}</td><td><select class="select-mini" data-grade="${p.id}" ${["admin", "coach"].includes(activeRole()) ? "" : "disabled"}><option value="" ${!p.grade ? "selected" : ""}>Belum dinilai</option>${["A", "B", "C", "Perlu pembinaan"].map(g => `<option value="${g}" ${p.grade === g ? "selected" : ""}>${g}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table></div></section>
-          <section class="card side-note"><h2 class="card-title">Rekap absensi</h2><p class="card-sub">Jumlah status yang tercatat</p>${statusCounts.map(s => `<div class="switch-row"><span class="note-title">${s.status}</span><span class="tag ${s.status === "Hadir" ? "" : s.status === "Alpa" ? "red" : "blue"}">${s.count}</span></div>`).join("")}<button class="button secondary small" style="margin-top:14px" data-action="export-attendance">Ekspor kehadiran</button></section></div>
+          <section class="card side-note"><h2 class="card-title">Rekap absensi</h2><p class="card-sub">Jumlah status yang tercatat</p>${statusCounts.map(s => `<div class="switch-row"><span class="note-title">${s.status}</span><span class="tag ${s.status === "Hadir" ? "" : s.status === "Alpa" ? "red" : "blue"}">${s.count}</span></div>`).join("")}<div class="toolbar-actions" style="margin-top:14px"><button class="button secondary small" data-action="export-attendance">CSV</button><button class="button secondary small" data-action="export-attendance-pdf">PDF</button><button class="button secondary small" data-action="export-attendance-word">Word</button></div></section></div>
           <p class="privacy-note">Berkas CSV dapat dibuka di aplikasi spreadsheet. Nama, kelas, dan catatan siswa merupakan data pribadi—bagikan laporan hanya kepada pihak yang berwenang.</p>`;
       }
       function settingsPage() {
@@ -560,7 +578,7 @@
           <h3 class="card-title" style="margin:22px 0 4px">Navigasi bawah HP · maksimal 5 menu</h3><p class="card-sub">Pilih menu yang tampil dan atur menu sorotannya.</p>
           ${pages.filter(p => p.roles.includes(role) && allowed.includes(p.id)).map(p => `<label class="switch-row bottom-menu-option"><span>${esc(p.label)}</span><input class="switch bottom-menu-switch" type="checkbox" data-bottom-menu="${p.id}" ${bottomAllowed.includes(p.id) ? "checked" : ""} aria-label="Tampilkan ${esc(p.label)} di navigasi bawah"></label>`).join("")}
           <div class="field" style="margin-top:12px"><label for="bottom-highlight-select">Menu highlight navigasi bawah</label><select id="bottom-highlight-select">${pages.filter(p => bottomAllowed.includes(p.id)).map(p => `<option value="${p.id}" ${data.bottomHighlights && data.bottomHighlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div></div></section>
-          <section class="card side-note"><h2 class="card-title">Akun pengguna</h2><p class="card-sub">Akun tersimpan di database VolleyDesk</p>${serverUsers.map(u => `<div class="note-item"><div class="account-row"><div><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}${u.playerId && playerById(u.playerId) ? ` · ${esc(playerById(u.playerId).name)}` : ""}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div><button class="close-x" data-delete-user="${u.id}" aria-label="Hapus akun ${esc(u.name)}" ${Number(u.id) === Number(signedInUser.id) ? "disabled" : ""}>×</button></div></div>`).join("")}
+          <section class="card side-note"><h2 class="card-title">Akun pengguna</h2><p class="card-sub">Akun tersimpan di database VolleyDesk</p>${serverUsers.map(u => `<div class="note-item"><div class="account-row"><div class="account-identity">${u.avatar ? `<img class="account-avatar" src="${esc(u.avatar)}" alt="">` : `<span class="account-avatar account-avatar-fallback">${esc(initials(u.name))}</span>`}<div><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}${u.playerId && playerById(u.playerId) ? ` · ${esc(playerById(u.playerId).name)}` : ""}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div></div><div class="account-actions"><button class="button secondary small" data-edit-user="${u.id}">Edit</button><button class="close-x" data-delete-user="${u.id}" aria-label="Hapus akun ${esc(u.name)}" ${Number(u.id) === Number(signedInUser.id) ? "disabled" : ""}>×</button></div></div></div>`).join("")}
           <div class="privacy-note">Akses akun diverifikasi oleh server. Hanya satu akun admin yang dapat terdaftar.</div></section></div>
           <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Logo aplikasi & favicon</h2><p class="card-sub">Logo tampil di halaman login dan menu utama; favicon tampil pada tab browser.</p></div></div>
             <div class="form-grid branding-form">
@@ -606,6 +624,7 @@
         $("#content").innerHTML = pageContent();
         document.documentElement.dataset.theme = data.theme || "light";
         applyBranding(data.branding);
+        syncProfileButton();
         $("#theme-toggle").textContent = data.theme === "dark" ? "☀" : "☾";
         $("#theme-toggle").title = data.theme === "dark" ? "Gunakan tema terang" : "Gunakan tema gelap";
         bindContentEvents();
@@ -831,24 +850,82 @@
           toast("Statistik aksi tersimpan.");
         });
       }
-      function changePasswordModal() {
-        showModal("Ubah kata sandi", `<form><div class="form-grid"><div class="field full"><label>Kata sandi saat ini</label><input name="currentPassword" type="password" required autocomplete="current-password"></div><div class="field full"><label>Kata sandi baru (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="newPassword" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div><div class="field full"><label>Ulangi kata sandi baru</label><input name="confirmPassword" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan sandi</button></div></form>`, async fd => {
-          const newPassword = String(fd.get("newPassword"));
-          if (newPassword.length < MIN_PASSWORD_LENGTH) {
-            toast(`Kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter.`);
-            return false;
-          }
-          if (newPassword !== String(fd.get("confirmPassword"))) {
-            toast("Konfirmasi kata sandi baru tidak sama.");
-            return false;
-          }
-          await api("/api/password", {
-            method: "POST",
+      function profileModal() {
+        const avatar = signedInUser.avatar || "";
+        const profileSummary = `<div class="profile-summary">${avatar ? `<img class="profile-avatar-large" src="${esc(avatar)}" alt="Foto ${esc(signedInUser.name)}">` : `<span class="profile-avatar-large profile-avatar-fallback">${esc(initials(signedInUser.name))}</span>`}<div><strong>${esc(signedInUser.name)}</strong><span>${esc(roles[signedInUser.role] || signedInUser.role)}</span><small>${esc(signedInUser.email)}</small>${signedInUser.createdAt ? `<small>Terdaftar ${formatDate(signedInUser.createdAt.slice(0, 10))}</small>` : ""}</div></div>`;
+        showModal("Profil pengguna", `<div class="profile-overview">${profileSummary}</div><form><div class="form-grid">
+          <div class="field full"><label for="profile-avatar">Foto profil · PNG, JPG, atau WebP · maks. 200 KB</label><input id="profile-avatar" name="avatarFile" type="file" accept="image/png,image/jpeg,image/webp">${avatar ? '<label class="switch-row"><span>Hapus foto profil</span><input name="clearAvatar" type="checkbox"></label>' : ""}</div>
+          <div class="field full"><label>Nama pengguna</label><input name="name" required maxlength="80" value="${esc(signedInUser.name)}" autocomplete="name"></div>
+          <div class="field full"><label>Username atau email</label><input name="email" type="text" required maxlength="254" value="${esc(signedInUser.email)}" autocomplete="username"></div>
+          <div class="field full"><label>Kata sandi saat ini untuk menyimpan perubahan</label><input name="currentPassword" type="password" required autocomplete="current-password"></div>
+          <div class="field"><label>Kata sandi baru (opsional, minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="newPassword" type="password" minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div>
+          <div class="field"><label>Ulangi kata sandi baru</label><input name="passwordConfirm" type="password" minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div>
+          </div><p class="privacy-note">Kosongkan kata sandi baru jika tidak ingin menggantinya. Perubahan profil memerlukan verifikasi kata sandi saat ini.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan profil</button></div></form>`, async fd => {
+          const newPassword = String(fd.get("newPassword") || "");
+          const passwordConfirm = String(fd.get("passwordConfirm") || "");
+          if (newPassword && newPassword !== passwordConfirm) throw new Error("Konfirmasi kata sandi baru tidak sama.");
+          const avatarFile = fd.get("avatarFile");
+          let nextAvatar = avatar;
+          if (avatarFile && avatarFile.size) nextAvatar = await readBrandingImage(avatarFile, "Foto profil", 200 * 1024);
+          else if (fd.get("clearAvatar")) nextAvatar = "";
+          const result = await api("/api/profile", {
+            method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ currentPassword: String(fd.get("currentPassword")), newPassword })
+            body: JSON.stringify({
+              name: String(fd.get("name")).trim(),
+              email: String(fd.get("email")).trim(),
+              currentPassword: String(fd.get("currentPassword")),
+              newPassword,
+              passwordConfirm,
+              avatar: nextAvatar
+            })
           });
-          toast("Kata sandi berhasil diubah.");
+          signedInUser = result.user;
+          if (activeRole() === "admin") {
+            const user = serverUsers.find(item => Number(item.id) === Number(result.user.id));
+            if (user) Object.assign(user, { name: result.user.name, email: result.user.email, avatar: result.user.avatar });
+          }
+          toast("Profil berhasil diperbarui.");
+          return "skip-persist";
         });
+      }
+      function editUserModal(userId) {
+        const user = serverUsers.find(item => Number(item.id) === Number(userId));
+        if (!user) return;
+        const isAdmin = user.role === "admin";
+        const roleField = isAdmin
+          ? `<input type="hidden" name="role" value="admin"><input value="${esc(roles.admin)}" disabled>`
+          : `<select name="role" id="edit-user-role">${Object.entries(roles).filter(([id]) => id !== "admin").map(([id, label]) => `<option value="${id}" ${user.role === id ? "selected" : ""}>${esc(label)}</option>`).join("")}</select>`;
+        showModal("Edit akun pengguna", `<form><div class="form-grid">
+          <div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" value="${esc(user.name)}"></div>
+          <div class="field full"><label>Username atau email</label><input name="email" type="text" required maxlength="254" value="${esc(user.email)}"></div>
+          <div class="field full"><label>Role</label>${roleField}</div>
+          <div class="field full" id="edit-user-player-field" ${user.role === "player" ? "" : "hidden"}><label>Hubungkan ke biodata pemain</label><select name="playerId">${data.players.map(player => `<option value="${player.id}" ${Number(user.playerId) === Number(player.id) ? "selected" : ""}>${esc(player.name)} · #${esc(player.number)} · ${esc(player.className)}</option>`).join("")}</select></div>
+          <div class="field full"><label>Kata sandi baru (opsional, minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password" placeholder="Kosongkan jika tidak diubah"></div>
+          </div><p class="privacy-note">${isAdmin ? "Role admin tidak dapat diubah dari pengelolaan akun. Gunakan Profil untuk memperbarui nama, username, dan kata sandi admin." : "Mengubah role menjadi Pemain memerlukan biodata pemain yang akan dihubungkan."}</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan perubahan</button></div></form>`, async fd => {
+          const role = String(fd.get("role"));
+          const result = await api(`/api/admin/users/${user.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: String(fd.get("name")).trim(),
+              email: String(fd.get("email")).trim(),
+              role,
+              playerId: role === "player" ? Number(fd.get("playerId")) : null,
+              password: String(fd.get("password") || "")
+            })
+          });
+          const updatedIndex = serverUsers.findIndex(item => Number(item.id) === Number(user.id));
+          if (updatedIndex >= 0) serverUsers[updatedIndex] = result.user;
+          const accounts = await api("/api/player-accounts");
+          playerAccounts = accounts.accounts;
+          if (Number(user.id) === Number(signedInUser.id)) signedInUser = Object.assign({}, signedInUser, result.user);
+          toast("Akun pengguna berhasil diperbarui.");
+          return "skip-persist";
+        });
+        const roleSelect = $("#edit-user-role");
+        const playerField = $("#edit-user-player-field");
+        if (roleSelect && playerField) roleSelect.addEventListener("change", () => { playerField.hidden = roleSelect.value !== "player"; });
       }
       function addUserModal() {
         const adminExists = serverUsers.some(user => user.role === "admin");
@@ -1023,23 +1100,65 @@
         toast(`${selected.length} pemain dan catatan terkait dihapus.`);
       }
       function exportReport(attendanceOnly) {
-        if (attendanceOnly === true) {
+        const report = reportData(attendanceOnly);
+        downloadCsv(report.filename, report.rows);
+        toast("Laporan CSV berhasil diekspor.");
+      }
+      function reportData(reportType) {
+        if (reportType === true) {
           const rows = [["Nama", "Kelas", "Tanggal sesi", "Sesi", "Status"]];
-          data.sessions.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(s => data.players.forEach(p => rows.push([p.name, p.className, s.date, s.title, (s.attendance || {})[p.id] || "Belum dicatat"])));
-          downloadCsv("rekap-kehadiran-volleydesk.csv", rows);
-        } else if (attendanceOnly === "grades") {
+          data.sessions.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(session =>
+            data.players.forEach(player => rows.push([player.name, player.className, session.date, session.title, (session.attendance || {})[player.id] || "Belum dicatat"]))
+          );
+          return { title: "Rekap Kehadiran Pemain", filename: "rekap-kehadiran-volleydesk.csv", rows };
+        }
+        if (reportType === "grades") {
           const rows = [["Nama siswa", "Kelas", "Ekstrakurikuler", "Predikat", "Kehadiran", "Catatan pembinaan"]];
           data.players.forEach(p => {
             const latestEvaluation = data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date)).map(s => s.evaluations && s.evaluations[p.id]).find(Boolean) || "";
             rows.push([p.name, p.className, "Bola Voli", p.grade || "Belum dinilai", attendanceRate(p.id) + "%", latestEvaluation]);
           });
-          downloadCsv("nilai-ekstrakurikuler-voli.csv", rows);
-        } else {
-          const rows = [["Nama", "Posisi", "Nomor", "Kelas", "Tinggi cm", "Berat kg", "Spike reach cm", "Block reach cm", "Kehadiran %", "Efisiensi attack %"]];
-          data.players.forEach(p => rows.push([p.name, p.position, p.number, p.className, p.height, p.weight, p.spikeReach, p.blockReach, attendanceRate(p.id), skillEfficiency(p.id, "Attack") == null ? "" : skillEfficiency(p.id, "Attack")]));
-          downloadCsv("laporan-progres-volleydesk.csv", rows);
+          return { title: "Nilai Ekstrakurikuler Voli", filename: "nilai-ekstrakurikuler-voli.csv", rows };
         }
-        toast("Laporan CSV berhasil diekspor.");
+        const rows = [["Nama", "Posisi", "Nomor", "Kelas", "Tinggi cm", "Berat kg", "Spike reach cm", "Block reach cm", "Kehadiran %", "Efisiensi attack %"]];
+        data.players.forEach(p => rows.push([p.name, p.position, p.number, p.className, p.height, p.weight, p.spikeReach, p.blockReach, attendanceRate(p.id), skillEfficiency(p.id, "Attack") == null ? "" : skillEfficiency(p.id, "Attack")]));
+        return { title: "Laporan Progres Pemain VolleyDesk", filename: "laporan-progres-volleydesk.csv", rows };
+      }
+      function reportDocument(report) {
+        const headers = report.rows[0] || [];
+        const rows = report.rows.slice(1);
+        return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>${esc(report.title)}</title><style>
+          body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;font-size:12px}
+          h1{font-size:21px;margin:0 0 6px}p{color:#586174;margin:4px 0 18px}
+          table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd2df;padding:7px;text-align:left;vertical-align:top}
+          th{background:#eaf0ff;color:#203a85}tr:nth-child(even) td{background:#f7f9fc}
+          @media print{body{margin:12mm}thead{display:table-header-group}tr{break-inside:avoid}}
+        </style></head><body><h1>${esc(report.title)}</h1><p>VolleyDesk · Dicetak ${esc(formatDate(todayISO()))} · ${rows.length} baris</p><table><thead><tr>${headers.map(cell => `<th>${esc(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+      }
+      function exportReportDocument(format, reportType) {
+        const report = reportData(reportType);
+        const html = reportDocument(report);
+        if (format === "word") {
+          const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = report.filename.replace(/\.csv$/, ".doc");
+          link.click();
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          toast("Laporan Word berhasil diunduh.");
+          return;
+        }
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) {
+          toast("Izinkan pop-up browser untuk membuat PDF.");
+          return;
+        }
+        printWindow.document.open();
+        printWindow.document.write(html);
+        printWindow.document.close();
+        window.setTimeout(() => { printWindow.focus(); printWindow.print(); }, 250);
+        toast("Pilih Simpan sebagai PDF pada dialog cetak.");
       }
       function applyServerState(state) {
         const hasBottomConfig = Boolean(state && state.bottomNav);
@@ -1174,6 +1293,13 @@
             case "delete-selected": await deleteSelectedPlayers(); break;
             case "save-backup-settings": await saveBackupSchedule(); break;
             case "save-branding": await saveBranding(); break;
+            case "save-live-stats":
+              if (matchStatsDirty && await persist()) {
+                matchStatsDirty = false;
+                render();
+                toast("Statistik pertandingan berhasil disimpan.");
+              }
+              break;
             case "backup-now": await sendBackupNow(); break;
             case "download-backup": await downloadBackup(); break;
             case "restore-backup": await restoreBackup(); break;
@@ -1185,6 +1311,10 @@
             case "export-report": exportReport(false); break;
             case "export-attendance": exportReport(true); break;
             case "export-grades": exportReport("grades"); break;
+            case "export-pdf": exportReportDocument("pdf", false); break;
+            case "export-word": exportReportDocument("word", false); break;
+            case "export-attendance-pdf": exportReportDocument("pdf", true); break;
+            case "export-attendance-word": exportReportDocument("word", true); break;
             case "refresh-recommendations": toast("Analisis rekomendasi diperbarui."); render(); break;
             case "save-target": {
               const player = activeRole() === "player" ? data.players[0] : playerById(selectedTargetPlayerId);
@@ -1225,6 +1355,7 @@
           const [mid, pid, skill] = el.dataset.deleteStat.split(":"); const m = data.matches.find(x => Number(x.id) === Number(mid));
           if (m) { m.stats = m.stats.filter(s => !(Number(s.playerId) === Number(pid) && s.skill === skill)); persist(); render(); }
         }));
+        $("#content").querySelectorAll("[data-edit-user]").forEach(el => el.addEventListener("click", () => editUserModal(el.dataset.editUser)));
         $("#content").querySelectorAll("[data-delete-user]").forEach(el => el.addEventListener("click", async () => {
           const user = serverUsers.find(item => Number(item.id) === Number(el.dataset.deleteUser));
           if (!user || !window.confirm(`Hapus akun ${user.name}?`)) return;
@@ -1236,15 +1367,28 @@
             toast("Akun pengguna dihapus.");
           } catch (error) { toast(error.message); }
         }));
-        $("#content").querySelectorAll("[data-live-stat]").forEach(el => el.addEventListener("click", async () => {
-          const [playerId, skill, result] = el.dataset.liveStat.split(":");
+        $("#content").querySelectorAll("[data-live-stat]").forEach(el => el.addEventListener("click", () => {
+          const [playerId, skill, result, deltaValue] = el.dataset.liveStat.split(":");
           const match = data.matches.find(item => Number(item.id) === Number(selectedMatchId));
-          if (!match || !["success", "errors"].includes(result)) return;
+          const delta = Number(deltaValue);
+          if (!match || !["success", "errors"].includes(result) || ![-1, 1].includes(delta)) return;
           match.stats = match.stats || [];
           let stat = match.stats.find(item => Number(item.playerId) === Number(playerId) && item.skill === skill);
-          if (!stat) { stat = { playerId: Number(playerId), skill, success: 0, errors: 0 }; match.stats.push(stat); }
-          stat[result] = Number(stat[result] || 0) + 1;
-          if (await persist()) render();
+          if (!stat) {
+            if (delta < 0) return;
+            stat = { playerId: Number(playerId), skill, success: 0, errors: 0 };
+            match.stats.push(stat);
+          }
+          if (delta < 0 && Number(stat[result] || 0) < 1) return;
+          stat[result] = Number(stat[result] || 0) + delta;
+          if (!stat.success && !stat.errors) match.stats = match.stats.filter(item => item !== stat);
+          matchStatsDirty = true;
+          render();
+        }));
+        $("#content").querySelectorAll("[data-edit-match]").forEach(el => el.addEventListener("click", () => {
+          selectedMatchId = Number(el.dataset.editMatch);
+          currentPage = "matches";
+          render();
         }));
         const sessionSelect = $("#session-select");
         if (sessionSelect) sessionSelect.addEventListener("change", () => { selectedSessionId = Number(sessionSelect.value); render(); });
@@ -1348,7 +1492,7 @@
           toast(error.message);
         }
       });
-      $("#password-button").addEventListener("click", changePasswordModal);
+      $("#profile-button").addEventListener("click", profileModal);
       async function initializeApp() {
         $("#login-screen").hidden = false;
         try {

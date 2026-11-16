@@ -23,6 +23,7 @@ const cookieName = "volleydesk.sid";
 const maximumStateBytes = 10 * 1024 * 1024;
 const maximumBrandingLogoBytes = 200 * 1024;
 const maximumFaviconBytes = 100 * 1024;
+const maximumProfileAvatarBytes = 200 * 1024;
 const maximumTelegramDocumentBytes = 40 * 1024 * 1024;
 const excelMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const timezone = process.env.BACKUP_TIMEZONE || "Asia/Jakarta";
@@ -79,7 +80,7 @@ function requestUser(request, response, next) {
     const session = database.get(
       `SELECT app_users.id, app_users.name, app_users.email,
               CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
-              player_user_links.player_id
+              player_user_links.player_id, app_users.avatar_data_url, app_users.created_at
        FROM auth_sessions JOIN app_users ON app_users.id = auth_sessions.user_id
        LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
        WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?`,
@@ -309,7 +310,7 @@ app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response
     }
     const user = database.get(
       `SELECT app_users.id, app_users.name, app_users.email, app_users.role, app_users.password_hash,
-              player_user_links.player_id
+              app_users.avatar_data_url, app_users.created_at, player_user_links.player_id
        FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
        WHERE app_users.email = ? COLLATE NOCASE`,
       [identifier]
@@ -328,14 +329,31 @@ app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response
       database.run("INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)", [tokenHash, user.id, expiresAt]);
     });
     setSessionCookie(response, token);
-    response.json({ user: { id: user.id, name: user.name, email: user.email, role: user.player_id ? "player" : user.role, playerId: user.player_id || null } });
+    response.json({ user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.player_id ? "player" : user.role,
+      playerId: user.player_id || null,
+      avatar: user.avatar_data_url || "",
+      createdAt: user.created_at
+    } });
   } catch (error) {
     next(error);
   }
 });
 
 app.get("/api/session", (request, response) => {
-  response.json({ user: request.user || null });
+  const user = request.user;
+  response.json({ user: user ? {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    playerId: user.player_id || null,
+    avatar: user.avatar_data_url || "",
+    createdAt: user.created_at
+  } : null });
 });
 
 app.get("/api/branding", (request, response) => {
@@ -384,9 +402,72 @@ app.post("/api/password", requireSameOrigin, requireUser, passwordLimiter, async
   }
 });
 
+app.put("/api/profile", requireSameOrigin, requireUser, async (request, response, next) => {
+  try {
+    const current = database.get(
+      "SELECT id, name, email, role, password_hash, avatar_data_url, created_at FROM app_users WHERE id = ?",
+      [request.user.id]
+    );
+    if (!current) {
+      apiError(response, 404, "Profil pengguna tidak ditemukan.");
+      return;
+    }
+    const name = typeof request.body.name === "string" ? request.body.name.trim() : "";
+    const email = typeof request.body.email === "string" ? request.body.email.trim().toLowerCase() : "";
+    const currentPassword = typeof request.body.currentPassword === "string" ? request.body.currentPassword : "";
+    const newPassword = typeof request.body.newPassword === "string" ? request.body.newPassword : "";
+    const passwordConfirm = typeof request.body.passwordConfirm === "string" ? request.body.passwordConfirm : "";
+    const avatar = typeof request.body.avatar === "string" ? request.body.avatar : current.avatar_data_url || "";
+    if (!name || name.length > 80 || !validLoginIdentifier(email) || email.length > 254 ||
+        (newPassword && (newPassword.length < minimumPasswordLength || newPassword.length > 1024 ||
+          newPassword !== passwordConfirm))) {
+      apiError(response, 400, "Periksa nama, username, dan kata sandi baru.");
+      return;
+    }
+    let safeAvatar;
+    try {
+      safeAvatar = sanitizeBrandingImage(avatar, maximumProfileAvatarBytes);
+    } catch {
+      apiError(response, 400, "Foto profil harus berupa PNG, JPG, atau WebP maksimal 200 KB.");
+      return;
+    }
+    if (!currentPassword || !(await bcrypt.compare(currentPassword, current.password_hash))) {
+      apiError(response, 401, "Kata sandi saat ini tidak sesuai.");
+      return;
+    }
+    const passwordHash = newPassword ? await bcrypt.hash(newPassword, 12) : current.password_hash;
+    const token = parseCookie(request, cookieName);
+    const currentTokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    database.transaction(() => {
+      database.run(
+        "UPDATE app_users SET name = ?, email = ?, avatar_data_url = ?, password_hash = ? WHERE id = ?",
+        [name, email, safeAvatar, passwordHash, request.user.id]
+      );
+      if (newPassword) {
+        database.run("DELETE FROM auth_sessions WHERE user_id = ? AND token_hash != ?", [request.user.id, currentTokenHash]);
+      }
+    });
+    response.json({ user: {
+      id: current.id,
+      name,
+      email,
+      role: request.user.role,
+      playerId: request.user.player_id || null,
+      avatar: safeAvatar,
+      createdAt: current.created_at
+    } });
+  } catch (error) {
+    if (String(error.message).includes("UNIQUE constraint failed: app_users.email")) {
+      apiError(response, 409, "Username atau email tersebut sudah digunakan.");
+      return;
+    }
+    next(error);
+  }
+});
+
 app.get("/api/admin/users", requireUser, requireAdmin, (request, response) => {
   const users = database.all(
-    `SELECT app_users.id, app_users.name, app_users.email,
+    `SELECT app_users.id, app_users.name, app_users.email, app_users.avatar_data_url AS avatar, app_users.created_at AS createdAt,
             CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
             player_user_links.player_id AS playerId
      FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
@@ -437,6 +518,93 @@ app.post("/api/admin/users", requireSameOrigin, requireUser, requireAdmin, async
     }
     if (String(error.message).includes("UNIQUE constraint failed: app_users.email")) {
       apiError(response, 409, "Email tersebut sudah terdaftar.");
+      return;
+    }
+    next(error);
+  }
+});
+
+app.put("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin, async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      apiError(response, 400, "Akun yang dipilih tidak valid.");
+      return;
+    }
+    const current = database.get("SELECT id, name, email, role, password_hash, avatar_data_url, created_at FROM app_users WHERE id = ?", [id]);
+    if (!current) {
+      apiError(response, 404, "Akun pengguna tidak ditemukan.");
+      return;
+    }
+    const name = typeof request.body.name === "string" ? request.body.name.trim() : "";
+    const email = typeof request.body.email === "string" ? request.body.email.trim().toLowerCase() : "";
+    const role = request.body.role;
+    const password = typeof request.body.password === "string" ? request.body.password : "";
+    const playerId = request.body.playerId == null || request.body.playerId === "" ? null : Number(request.body.playerId);
+    const state = readAppState().data;
+    if (!name || name.length > 80 || !validLoginIdentifier(email) || email.length > 254 ||
+        !validRoles.has(role) || (password && (password.length < minimumPasswordLength || password.length > 1024)) ||
+        (role === "player" && (!Number.isSafeInteger(playerId) || !state || !state.players.some(player => Number(player.id) === playerId))) ||
+        (role !== "player" && playerId !== null)) {
+      apiError(response, 400, `Periksa data pengguna. Username/email valid dan kata sandi baru minimal ${minimumPasswordLength} karakter.`);
+      return;
+    }
+    const adminCount = () => Number(database.get("SELECT COUNT(*) AS count FROM app_users WHERE role = 'admin'").count);
+    if (role === "admin" && current.role !== "admin" && adminCount() > 0) {
+      apiError(response, 409, "Akun admin sudah tersedia. Aplikasi hanya mengizinkan satu akun admin.");
+      return;
+    }
+    if (current.role === "admin" && role !== "admin" && adminCount() <= 1) {
+      apiError(response, 409, "Role admin terakhir tidak dapat diubah.");
+      return;
+    }
+    if (role === "player") {
+      const linked = database.get("SELECT user_id FROM player_user_links WHERE player_id = ?", [playerId]);
+      if (linked && Number(linked.user_id) !== id) {
+        apiError(response, 409, "Pemain tersebut sudah terhubung ke akun lain.");
+        return;
+      }
+    }
+    const passwordHash = password ? await bcrypt.hash(password, 12) : current.password_hash;
+    let updatedUser;
+    database.transaction(() => {
+      if (role === "admin" && current.role !== "admin" && adminCount() > 0) {
+        const error = new Error("Akun admin sudah tersedia. Aplikasi hanya mengizinkan satu akun admin.");
+        error.code = "ADMIN_ALREADY_EXISTS";
+        throw error;
+      }
+      if (current.role === "admin" && role !== "admin" && adminCount() <= 1) {
+        const error = new Error("Role admin terakhir tidak dapat diubah.");
+        error.code = "LAST_ADMIN";
+        throw error;
+      }
+      database.run(
+        "UPDATE app_users SET name = ?, email = ?, role = ?, password_hash = ? WHERE id = ?",
+        [name, email, role === "player" ? "coach" : role, passwordHash, id]
+      );
+      database.run("DELETE FROM player_user_links WHERE user_id = ?", [id]);
+      if (role === "player") database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [id, playerId]);
+      updatedUser = database.get(
+        `SELECT app_users.id, app_users.name, app_users.email, app_users.avatar_data_url AS avatar, app_users.created_at AS createdAt,
+                CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
+                player_user_links.player_id AS playerId
+         FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
+         WHERE app_users.id = ?`,
+        [id]
+      );
+    });
+    response.json({ user: updatedUser });
+  } catch (error) {
+    if (error.code === "ADMIN_ALREADY_EXISTS" || error.code === "LAST_ADMIN") {
+      apiError(response, 409, error.message);
+      return;
+    }
+    if (String(error.message).includes("UNIQUE constraint failed: app_users.email")) {
+      apiError(response, 409, "Username atau email tersebut sudah digunakan.");
+      return;
+    }
+    if (String(error.message).includes("UNIQUE constraint failed: player_user_links.player_id")) {
+      apiError(response, 409, "Pemain tersebut sudah terhubung ke akun lain.");
       return;
     }
     next(error);

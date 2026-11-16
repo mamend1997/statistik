@@ -87,6 +87,7 @@ async function initializeDatabase() {
       email TEXT NOT NULL UNIQUE COLLATE NOCASE,
       role TEXT NOT NULL CHECK(role IN ('admin', 'principal', 'curriculum', 'coach')),
       password_hash TEXT NOT NULL,
+      avatar_data_url TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TRIGGER IF NOT EXISTS app_users_single_admin_insert
@@ -131,6 +132,10 @@ async function initializeDatabase() {
     );
     INSERT OR IGNORE INTO backup_settings (id) VALUES (1);
   `);
+  const userColumns = all("PRAGMA table_info(app_users)");
+  if (!userColumns.some(column => column.name === "avatar_data_url")) {
+    db.run("ALTER TABLE app_users ADD COLUMN avatar_data_url TEXT");
+  }
   const backupColumns = all("PRAGMA table_info(backup_settings)");
   if (!backupColumns.some(column => column.name === "last_attempt_at")) {
     db.run("ALTER TABLE backup_settings ADD COLUMN last_attempt_at INTEGER");
