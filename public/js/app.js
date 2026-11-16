@@ -3,6 +3,7 @@
       const STORAGE_KEY = "volleyDeskDataV1";
       const LEGACY_IMPORTED_KEY = "volleyDeskLegacyImportedV1";
       const LAST_PAGE_KEY = "volleyDeskLastPageV1";
+      const LAST_PLAYER_KEY = "volleyDeskLastPlayerV1";
       const MIN_PASSWORD_LENGTH = 6;
       const roles = {
         admin: "Admin / Operator",
@@ -15,10 +16,9 @@
         { id: "dashboard", label: "Ringkasan", icon: "▦", roles: ["admin", "principal", "curriculum", "coach", "player"] },
         { id: "players", label: "Data pemain", icon: "♟", roles: ["admin", "coach"] },
         { id: "teams", label: "Tim", icon: "🏐", roles: ["admin", "coach"] },
-        { id: "attendance", label: "Kehadiran", icon: "✓", roles: ["admin", "principal", "curriculum", "coach"] },
+        { id: "attendance", label: "Latihan", icon: "✓", roles: ["admin", "principal", "curriculum", "coach"] },
         { id: "schedule", label: "Kalender", icon: "▣", roles: ["admin", "principal", "curriculum", "coach", "player"] },
-        { id: "training", label: "Latihan", icon: "↗", roles: ["admin", "coach"] },
-        { id: "matches", label: "Statistik", icon: "◎", roles: ["admin", "coach"] },
+        { id: "training", label: "Pertandingan", icon: "◎", roles: ["admin", "coach"] },
         { id: "recommendations", label: "Rekomendasi", icon: "✦", roles: ["admin", "coach"] },
         { id: "reports", label: "Laporan", icon: "▤", roles: ["admin", "principal", "curriculum", "coach"] },
         { id: "targets", label: "Target performa", icon: "◉", roles: ["admin", "coach", "player"] },
@@ -32,7 +32,7 @@
           admin: pages.filter(p => p.roles.includes("admin")).map(p => p.id),
           principal: ["dashboard", "attendance", "schedule", "reports"],
           curriculum: ["dashboard", "attendance", "schedule", "reports"],
-          coach: ["dashboard", "players", "teams", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets"],
+          coach: ["dashboard", "players", "teams", "attendance", "schedule", "training", "recommendations", "reports", "targets"],
           player: ["dashboard", "schedule", "targets"]
         },
         highlights: { admin: "dashboard", principal: "dashboard", curriculum: "schedule", coach: "attendance", player: "dashboard" },
@@ -40,7 +40,7 @@
           admin: ["dashboard", "players", "attendance", "schedule", "settings"],
           principal: ["dashboard", "attendance", "schedule", "reports"],
           curriculum: ["dashboard", "schedule", "attendance", "reports"],
-          coach: ["dashboard", "players", "attendance", "matches", "schedule"],
+          coach: ["dashboard", "players", "attendance", "training", "schedule"],
           player: ["dashboard", "schedule", "targets"]
         },
         bottomHighlights: { admin: "dashboard", principal: "dashboard", curriculum: "schedule", coach: "attendance", player: "dashboard" },
@@ -90,6 +90,7 @@
       let currentPage = "dashboard";
       let settingsRoleKey = data.role || "coach";
       let selectedMatchId = data.matches[0] ? data.matches[0].id : null;
+      let selectedPlayerId = null;
       let matchStatsDirty = false;
       let selectedTargetPlayerId = null;
       let selectedTargetPeriod = "week";
@@ -136,7 +137,17 @@
         if (!signedInUser) return;
         try {
           const savedPage = localStorage.getItem(`${LAST_PAGE_KEY}:${signedInUser.id}`);
-          if (visiblePages().some(page => page.id === savedPage)) currentPage = savedPage;
+          const canOpenLiveMatch = savedPage === "matches" && visiblePages().some(page => page.id === "training");
+          const canOpenPlayerStats = savedPage === "playerStats" && visiblePages().some(page => page.id === "players");
+          if (canOpenPlayerStats) {
+            selectedPlayerId = Number(localStorage.getItem(`${LAST_PLAYER_KEY}:${signedInUser.id}`));
+            if (!playerById(selectedPlayerId)) selectedPlayerId = null;
+          }
+          if (canOpenPlayerStats && selectedPlayerId != null) {
+            currentPage = "playerStats";
+            return;
+          }
+          if (canOpenLiveMatch || visiblePages().some(page => page.id === savedPage)) currentPage = savedPage;
         } catch (error) {
           console.error("Halaman terakhir tidak dapat dipulihkan.", error);
         }
@@ -228,6 +239,18 @@
         }
         return { start: dateKey(start), end: dateKey(end), weeks: Math.max(1, (end - start) / 604800000 + 1) };
       }
+      function targetDefaultsForPosition(position, period) {
+        const defaults = {
+          "Libero": { blockSuccess: 0, attackSuccess: 0, serveErrors: 1, receiveErrors: 2 },
+          "Setter": { blockSuccess: 2, attackSuccess: 4, serveErrors: 2, receiveErrors: 2 },
+          "Outside Hitter": { blockSuccess: 3, attackSuccess: 8, serveErrors: 2, receiveErrors: 3 },
+          "Opposite": { blockSuccess: 3, attackSuccess: 8, serveErrors: 2, receiveErrors: 2 },
+          "Middle Blocker": { blockSuccess: 5, attackSuccess: 5, serveErrors: 2, receiveErrors: 2 }
+        };
+        const base = defaults[position] || defaults["Setter"];
+        const multiplier = period === "month" ? 4 : 1;
+        return Object.fromEntries(Object.entries(base).map(([key, value]) => [key, value * multiplier]));
+      }
       function targetMetrics(playerId, period) {
         const range = targetDateRange(period);
         const stats = data.matches.filter(match => match.date >= range.start && match.date <= range.end)
@@ -237,16 +260,11 @@
           errors: total.errors + Number(stat.errors || 0)
         }), { success: 0, errors: 0 });
         const serve = sum("Serve"), receive = sum("Receive"), attack = sum("Attack"), block = sum("Block");
-        const sessionsAttended = data.sessions.filter(session => session.date >= range.start && session.date <= range.end &&
-          (activeRole() === "player" ? session.attendance && session.attendance[playerId] === "Hadir" : session.attendance && session.attendance[playerId] === "Hadir")).length;
-        const percent = result => result.success + result.errors ? Math.round(result.success / (result.success + result.errors) * 100) : 0;
         return {
-          serveSuccess: serve.success,
+          blockSuccess: block.success,
+          attackSuccess: attack.success,
           serveErrors: serve.errors,
-          receiveAverage: percent(receive),
-          attackEfficiency: percent(attack),
-          blockEffective: block.success,
-          practicePerWeek: Math.round(sessionsAttended / range.weeks * 10) / 10
+          receiveErrors: receive.errors
         };
       }
       function attendanceReachCorrelation() {
@@ -272,16 +290,18 @@
       }
       function renderNav() {
         const nav = $("#nav"), bottomNav = $("#bottom-nav"), allowed = visiblePages();
-        if (!allowed.some(p => p.id === currentPage)) currentPage = allowed.length ? allowed[0].id : "dashboard";
+        const canOpenLiveMatch = currentPage === "matches" && allowed.some(page => page.id === "training");
+        const canOpenPlayerStats = currentPage === "playerStats" && allowed.some(page => page.id === "players") && Boolean(playerById(selectedPlayerId));
+        if (!canOpenLiveMatch && !canOpenPlayerStats && !allowed.some(p => p.id === currentPage)) currentPage = allowed.length ? allowed[0].id : "dashboard";
         saveLastPage();
         const highlight = data.highlights[activeRole()];
-        nav.innerHTML = allowed.length ? allowed.map(p => `<button class="nav-btn ${currentPage === p.id ? "active" : ""}" data-page="${p.id}"><span class="nav-icon">${p.icon}</span><span>${esc(p.label)}</span>${highlight === p.id ? '<span class="nav-pin">★</span>' : ""}</button>`).join("") : '<div class="empty">Belum ada menu yang diizinkan.</div>';
+        nav.innerHTML = allowed.length ? allowed.map(p => `<button class="nav-btn ${currentPage === p.id || (canOpenLiveMatch && p.id === "training") || (canOpenPlayerStats && p.id === "players") ? "active" : ""}" data-page="${p.id}"><span class="nav-icon">${p.icon}</span><span>${esc(p.label)}</span>${highlight === p.id && p.id !== "dashboard" ? '<span class="nav-pin">★</span>' : ""}</button>`).join("") : '<div class="empty">Belum ada menu yang diizinkan.</div>';
         nav.querySelectorAll("[data-page]").forEach(button => button.addEventListener("click", () => { currentPage = button.dataset.page; $("#sidebar").classList.remove("open"); render(); }));
         const bottomIds = (data.bottomNav && data.bottomNav[activeRole()] || []).filter(id => allowed.some(page => page.id === id)).slice(0, 5);
         const bottomHighlight = data.bottomHighlights && data.bottomHighlights[activeRole()];
         bottomNav.innerHTML = bottomIds.map(id => {
           const page = allowed.find(item => item.id === id);
-          return `<button class="bottom-nav-btn ${currentPage === id ? "active" : ""} ${bottomHighlight === id ? "highlight" : ""}" data-page="${id}" aria-label="${esc(page.label)}"><span class="nav-icon">${page.icon}</span><span>${esc(page.label)}</span></button>`;
+          return `<button class="bottom-nav-btn ${currentPage === id || (canOpenLiveMatch && id === "training") || (canOpenPlayerStats && id === "players") ? "active" : ""} ${bottomHighlight === id ? "highlight" : ""}" data-page="${id}" aria-label="${esc(page.label)}"><span class="nav-icon">${page.icon}</span><span>${esc(page.label)}</span></button>`;
         }).join("");
         bottomNav.querySelectorAll("[data-page]").forEach(button => button.addEventListener("click", () => { currentPage = button.dataset.page; render(); }));
       }
@@ -302,38 +322,132 @@
         button.appendChild(label);
       }
       function heading(title, subtitle, action) {
-        const p = pages.find(x => x.id === currentPage);
+        const pageId = currentPage === "matches" ? "training" : currentPage === "playerStats" ? "players" : currentPage;
+        const p = pages.find(x => x.id === pageId);
         return `<div class="page-head"><div><div class="eyebrow">${esc(p ? p.label : "VolleyDesk")}</div><h1>${title}</h1><p class="subheading">${subtitle}</p></div>${action || ""}</div>`;
       }
       function metric(label, number, note, icon) {
         return `<div class="card metric"><div class="metric-top">${label}<span class="metric-icon">${icon}</span></div><div class="metric-number">${number}</div><div class="metric-note">${note}</div></div>`;
       }
-      function eventsUpcoming(limit) {
-        return data.events.filter(e => e.date >= todayISO()).sort((a, b) => a.date.localeCompare(b.date)).slice(0, limit);
+      function calendarActivities() {
+        return [
+          ...data.events.map(event => Object.assign({ source: "event" }, event)),
+          ...data.sessions.map(session => ({
+            id: `session-${session.id}`, title: session.title, type: "Latihan", date: session.date,
+            time: session.time || "", location: session.location || "", notes: session.notes || "", source: "session"
+          })),
+          ...data.matches.map(match => ({
+            id: `match-${match.id}`, title: match.name, type: match.eventType || "Pertandingan", date: match.date,
+            time: match.time || "", location: match.location || "", notes: match.notes || "", source: "match"
+          }))
+        ];
       }
-      function eventTypeClass(type) { return type === "Turnamen" ? "orange" : type === "Sparring" ? "blue" : type === "Istirahat" ? "" : ""; }
+      function migrateCalendarActivities() {
+        const remainingEvents = [];
+        const existingIds = data.sessions.concat(data.matches, data.events).map(item => Number(item.id) || 0);
+        let nextId = existingIds.reduce((maximum, id) => Math.max(maximum, id), 0) + 1;
+        let migrated = false;
+        data.events.forEach(event => {
+          const type = String(event.type || "").toLowerCase();
+          if (type === "latihan" || type === "latihan tim") {
+            data.sessions.push({
+              id: nextId++, title: event.title, date: event.date, time: event.time || "",
+              location: event.location || "", drills: [], notes: event.notes || "",
+              evaluations: {}, attendance: {}, attendanceSaved: false
+            });
+            migrated = true;
+          } else if (["pertandingan", "sparring", "turnamen"].includes(type)) {
+            data.matches.push({
+              id: nextId++, name: event.title, date: event.date, opponent: "",
+              eventType: event.type, time: event.time || "", location: event.location || "",
+              notes: event.notes || "", evaluations: {}, stats: []
+            });
+            migrated = true;
+          } else {
+            remainingEvents.push(event);
+          }
+        });
+        if (migrated) data.events = remainingEvents;
+        return migrated;
+      }
+      function eventsUpcoming(limit) {
+        return calendarActivities().filter(event => event.date >= todayISO())
+          .sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || ""))
+          .slice(0, limit);
+      }
+      function eventTypeClass(type) { return type === "Turnamen" ? "orange" : ["Sparring", "Pertandingan"].includes(type) ? "blue" : ""; }
       function eventRow(event) {
         const d = dateObj(event.date);
         const details = [event.time, event.location].filter(Boolean).map(esc).join(" · ");
         return `<div class="event-row"><div class="date-tile"><strong>${d.getDate()}</strong><span>${shortMonth(event.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${details || formatDate(event.date)}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(event.type)}">${esc(event.type)}</span></div>`;
       }
-      function chartSvg() {
-        const points = data.sessions.slice(0, 6).reverse().map(s => {
-          const att = Object.values(s.attendance || {});
-          return att.length ? Math.round(att.filter(x => x === "Hadir").length / att.length * 100) : 0;
-        });
-        while (points.length < 6) points.unshift(0);
-        const xs = points.map((_, i) => 38 + i * 77);
-        const ys = points.map(v => 154 - v * 1.2);
-        const path = xs.map((x, i) => `${i ? "L" : "M"}${x},${ys[i]}`).join(" ");
-        const labels = data.sessions.slice(0, 6).reverse().map(s => shortMonth(s.date));
-        while (labels.length < 6) labels.unshift("—");
-        return `<svg viewBox="0 0 430 185" role="img" aria-label="Grafik tingkat kehadiran per sesi"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--blue)" stop-opacity=".22"/><stop offset="1" stop-color="var(--blue)" stop-opacity="0"/></linearGradient></defs>
-          ${[35, 75, 115, 155].map(y => `<line class="chart-grid" x1="28" y1="${y}" x2="420" y2="${y}"/>`).join("")}
-          <text class="chart-label" x="0" y="38">100%</text><text class="chart-label" x="8" y="78">67%</text><text class="chart-label" x="8" y="118">33%</text><text class="chart-label" x="17" y="158">0%</text>
-          <path class="chart-area" d="${path} L${xs[xs.length - 1]},155 L${xs[0]},155 Z"/><path class="chart-line" d="${path}"/>
-          ${xs.map((x, i) => `<circle cx="${x}" cy="${ys[i]}" r="4" fill="var(--surface)" stroke="var(--blue)" stroke-width="2"/><text class="chart-label" x="${x - 9}" y="177">${esc(labels[i] || "")}</text>`).join("")}
-        </svg>`;
+      function scoredSets(match) {
+        return (Array.isArray(match.sets) ? match.sets : []).map((set, index) => ({
+          index,
+          teamPoints: set.teamPoints,
+          opponentPoints: set.opponentPoints
+        })).filter(set => set.teamPoints !== "" && set.teamPoints != null &&
+          set.opponentPoints !== "" && set.opponentPoints != null &&
+          Number.isFinite(Number(set.teamPoints)) && Number.isFinite(Number(set.opponentPoints)) &&
+          Number(set.teamPoints) !== Number(set.opponentPoints));
+      }
+      function matchSetResult(match) {
+        const sets = scoredSets(match);
+        const teamSets = sets.filter(set => Number(set.teamPoints) > Number(set.opponentPoints)).length;
+        const opponentSets = sets.filter(set => Number(set.opponentPoints) > Number(set.teamPoints)).length;
+        return { sets, teamSets, opponentSets, winner: teamSets === opponentSets ? null : teamSets > opponentSets ? "team" : "opponent" };
+      }
+      function matchSkillTotals(matches) {
+        const stats = matches.flatMap(match => match.stats || []);
+        const points = skill => stats.filter(stat => stat.skill === skill)
+          .reduce((sum, stat) => sum + Number(stat.success || 0), 0);
+        return { ace: points("Ace"), attack: points("Attack"), receive: points("Receive"), block: points("Block") };
+      }
+      function matchTeamName(match) {
+        const team = data.teams.find(item => Number(item.id) === Number(match.teamId));
+        return team ? team.name : "Tim sendiri";
+      }
+      function matchTeamRosterMarkup(teamId, selectedPlayerIds) {
+        const team = data.teams.find(item => Number(item.id) === Number(teamId));
+        const players = team
+          ? data.players.filter(player => (team.playerIds || []).some(id => Number(id) === Number(player.id)))
+          : data.players;
+        const selected = new Set((selectedPlayerIds || players.map(player => player.id)).map(Number));
+        return players.map(player => `<label class="roster-option"><input type="checkbox" name="roster" value="${player.id}" ${selected.has(Number(player.id)) ? "checked" : ""}><span>${esc(player.name)} · #${esc(player.number)} · ${esc(player.position)}</span></label>`).join("")
+          || '<div class="empty">Tim ini belum memiliki pemain.</div>';
+      }
+      function matchTeamPickerMarkup(selectedTeamId, allowUnassigned) {
+        const teams = data.teams || [];
+        const selectedTeamExists = teams.some(team => Number(team.id) === Number(selectedTeamId));
+        const unassignedSelected = selectedTeamId == null || selectedTeamId === "" || !selectedTeamExists;
+        const showEmptyOption = allowUnassigned || !teams.length || unassignedSelected;
+        const emptyOptionLabel = teams.length
+          ? (allowUnassigned ? "Roster khusus (tanpa tim)" : "Pilih tim")
+          : "Roster pemain (belum ada tim)";
+        const unassignedOption = showEmptyOption
+          ? `<option value="" ${unassignedSelected ? "selected" : ""}>${emptyOptionLabel}</option>`
+          : "";
+        return `<select name="teamId" id="match-team-picker" ${teams.length && !allowUnassigned ? "required" : ""}>${unassignedOption}${teams.map(team => `<option value="${team.id}" ${Number(team.id) === Number(selectedTeamId) ? "selected" : ""}>${esc(team.name)}</option>`).join("")}</select>`;
+      }
+      function bindMatchTeamPicker(root, selectedPlayerIds) {
+        const picker = $("#match-team-picker", root);
+        const roster = $("#match-roster-picker", root);
+        if (!picker || !roster) return;
+        const selections = new Map();
+        if (Array.isArray(selectedPlayerIds)) selections.set(picker.value, selectedPlayerIds.map(Number));
+        const saveSelection = () => selections.set(picker.value,
+          Array.from(roster.querySelectorAll('input[name="roster"]:checked'), input => Number(input.value)));
+        const renderRoster = () => {
+          const current = picker.value;
+          if ((data.teams || []).length && !current && !Array.isArray(selectedPlayerIds)) {
+            roster.innerHTML = '<div class="empty">Pilih tim terlebih dahulu.</div>';
+            return;
+          }
+          roster.innerHTML = matchTeamRosterMarkup(current, selections.get(current));
+          roster.querySelectorAll('input[name="roster"]').forEach(input => input.addEventListener("change", saveSelection));
+        };
+        picker.addEventListener("change", renderRoster);
+        renderRoster();
       }
       function dashboardPage() {
         if (activeRole() === "player") return playerDashboardPage();
@@ -349,10 +463,7 @@
             ${metric("Sesi latihan", data.sessions.length, "Pertemuan terdokumentasi", "↗")}
             ${metric("Agenda mendatang", eventsUpcoming(20).length, "Latihan, sparring & turnamen", "▣")}
           </div>
-          <div class="grid dashboard-grid">
-            <section class="card"><div class="card-head"><div><h2 class="card-title">Kedisiplinan tim</h2><p class="card-sub">Persentase hadir pada setiap sesi latihan</p></div><span class="tag blue">Rata-rata ${avg}%</span></div><div class="chart-wrap">${chartSvg()}</div></section>
-            <section class="card"><div class="card-head"><div><h2 class="card-title">Agenda berikutnya</h2><p class="card-sub">Pengingat kegiatan tim</p></div><button class="button secondary small" data-page="schedule">Lihat semua</button></div><div class="event-list">${upcoming.length ? upcoming.map(eventRow).join("") : '<div class="empty">Belum ada agenda mendatang.</div>'}</div></section>
-          </div>
+          <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Agenda berikutnya</h2><p class="card-sub">Pengingat kegiatan tim</p></div><button class="button secondary small" data-page="schedule">Lihat semua</button></div><div class="event-list">${upcoming.length ? upcoming.map(eventRow).join("") : '<div class="empty">Belum ada agenda mendatang.</div>'}</div></section>
           <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Ringkasan pemain</h2><p class="card-sub">Kehadiran dan jangkauan spike terakhir</p></div><button class="button secondary small" data-page="players">Data pemain</button></div>
             <div class="table-wrap"><table><thead><tr><th>Pemain</th><th>Kelas</th><th>Posisi</th><th>Kehadiran</th><th>Spike reach</th></tr></thead><tbody>
               ${topPlayers.map(p => `<tr><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.className)}</td><td>${esc(p.position)}</td><td><span class="progress"><i style="width:${attendanceRate(p.id)}%"></i></span>${attendanceRate(p.id)}%</td><td>${esc(p.spikeReach)} cm</td></tr>`).join("")}
@@ -371,7 +482,18 @@
           <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Riwayat latihan</h2><p class="card-sub">Kehadiran dan catatan dari pelatih</p></div></div><div class="event-list">${sessions.map(session => `<div class="event-row"><div class="date-tile"><strong>${dateObj(session.date).getDate()}</strong><span>${shortMonth(session.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(session.title)}</div><div class="event-meta">${session.attendance && session.attendance[player.id] ? esc(session.attendance[player.id]) : "Belum dicatat"}${session.evaluations && session.evaluations[player.id] ? ` · ${esc(session.evaluations[player.id])}` : ""}</div></div></div>`).join("") || '<div class="empty">Belum ada sesi latihan.</div>'}</div></section>`;
       }
       function playerRows(players) {
-        return players.map(p => `<tr><td><input class="player-select" type="checkbox" data-select-player="${p.id}" ${selectedPlayerIds.has(Number(p.id)) ? "checked" : ""} aria-label="Pilih ${esc(p.name)}"></td><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.position)}</td><td>${esc(p.className)}</td><td>${esc(p.height)} cm</td><td>${esc(p.weight)} kg</td><td>${esc(p.spikeReach)} / ${esc(p.blockReach)} cm</td><td>${attendanceRate(p.id)}%</td><td><button class="button secondary small" data-edit-player="${p.id}">Edit</button></td></tr>`).join("");
+        return players.map(p => `<tr><td><input class="player-select" type="checkbox" data-select-player="${p.id}" ${selectedPlayerIds.has(Number(p.id)) ? "checked" : ""} aria-label="Pilih ${esc(p.name)}"></td><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.position)}</td><td>${esc(p.className)}</td><td>${esc(p.height)} cm</td><td>${esc(p.weight)} kg</td><td>${esc(p.spikeReach)} / ${esc(p.blockReach)} cm</td><td>${attendanceRate(p.id)}%</td><td><div class="toolbar-actions"><button class="button small" data-player-stats="${p.id}">Statistik pemain</button><button class="button secondary small" data-edit-player="${p.id}">Edit profil</button></div></td></tr>`).join("");
+      }
+      function openPlayerStats(playerId) {
+        const player = playerById(playerId);
+        if (!player) return;
+        selectedPlayerId = Number(player.id);
+        if (signedInUser) {
+          try { localStorage.setItem(`${LAST_PLAYER_KEY}:${signedInUser.id}`, String(selectedPlayerId)); }
+          catch (error) { console.error("Pemain terakhir tidak dapat disimpan.", error); }
+        }
+        currentPage = "playerStats";
+        render();
       }
       function playersPage() {
         const filtered = data.players.filter(p => (p.name + " " + p.position + " " + p.className).toLowerCase().includes(searchTerm.toLowerCase()));
@@ -380,6 +502,50 @@
           <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="select-all-players" ${filtered.length && filtered.every(p => selectedPlayerIds.has(Number(p.id))) ? "checked" : ""} aria-label="Pilih semua pemain yang ditampilkan"></th><th>Pemain</th><th>Posisi</th><th>Kelas</th><th>Tinggi</th><th>Berat</th><th>Spike / block</th><th>Kehadiran</th><th>Aksi</th></tr></thead><tbody>${filtered.length ? playerRows(filtered) : '<tr><td colspan="9" class="empty">Pemain tidak ditemukan.</td></tr>'}</tbody></table></div></section>
           <p class="privacy-note">Template Excel (.xlsx) dan CSV memakai delapan kolom biodata/antropometri wajib. Jenis Kelamin dan Tanggal Lahir (YYYY-MM-DD) tersedia sebagai kolom opsional; template lama tetap didukung.</p>
           <p class="privacy-note">Riwayat pengukuran disimpan saat profil diperbarui. Pertimbangkan usia, tahap pertumbuhan, dan teknik pengukuran yang konsisten saat membandingkan antropometri.</p>`;
+      }
+      function playerStatsPage() {
+        const player = playerById(selectedPlayerId);
+        if (!player) return `${heading("Statistik pemain", "Data pemain tidak ditemukan.", '<button class="button secondary" data-page="players">Kembali</button>')}<div class="card empty">Pilih pemain dari Data pemain.</div>`;
+        const sessions = data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date));
+        const attendanceRows = sessions.length ? sessions.map(session => {
+          const status = (session.attendance || {})[player.id] || "Belum dicatat";
+          const statusClass = { Hadir: "green", Izin: "blue", Sakit: "orange", Alpa: "red" }[status] || "red";
+          return `<tr><td>${formatDate(session.date)}</td><td>${esc(session.title)}</td><td><span class="tag ${statusClass}">${esc(status)}</span></td></tr>`;
+        }).join("") : '<tr><td colspan="3" class="empty">Belum ada sesi latihan.</td></tr>';
+        const matches = data.matches.filter(match =>
+          (Array.isArray(match.playerIds) && match.playerIds.some(id => Number(id) === Number(player.id))) ||
+          (match.stats || []).some(stat => Number(stat.playerId) === Number(player.id))
+        ).sort((a, b) => b.date.localeCompare(a.date));
+        const skills = [
+          ["Ace", "Ace"], ["Attack", "Serangan"], ["Block", "Blok"], ["Serve", "Servis"],
+          ["Receive", "Receive"], ["Dig", "Dig"], ["Set", "Set"]
+        ];
+        const skillValues = match => skills.map(([skill, label]) => {
+          const stats = (match.stats || []).filter(stat => Number(stat.playerId) === Number(player.id) && stat.skill === skill);
+          const success = stats.reduce((sum, stat) => sum + Number(stat.success || 0), 0);
+          const errors = stats.reduce((sum, stat) => sum + Number(stat.errors || 0), 0);
+          return { label, success, errors };
+        });
+        const matchRows = matches.length ? matches.map(match => {
+          const score = matchSetResult(match);
+          const scoreLabel = score.sets.length ? `${score.teamSets}-${score.opponentSets} set` : "Skor belum diisi";
+          return `<tr><td><strong>${esc(match.name)}</strong><span class="position">${esc(match.opponent || "Lawan belum diisi")} · ${scoreLabel}</span></td><td>${formatDate(match.date)}</td>${skillValues(match).map(value => `<td>${value.success} / ${value.errors}</td>`).join("")}</tr>`;
+        }).join("") : `<tr><td colspan="${skills.length + 2}" class="empty">Belum ada statistik pertandingan untuk ${esc(player.name)}.</td></tr>`;
+        const totals = skills.map(([skill, label]) => {
+          const stats = matches.flatMap(match => match.stats || []).filter(stat => Number(stat.playerId) === Number(player.id) && stat.skill === skill);
+          return { label, success: stats.reduce((sum, stat) => sum + Number(stat.success || 0), 0) };
+        });
+        const total = skill => totals.find(item => item.label === skill).success;
+        return `${heading("Statistik pemain", `${esc(player.name)} · ${esc(player.position)} · #${esc(player.number)} · ${esc(player.className)}`, '<button class="button secondary" data-page="players">← Data pemain</button>')}
+          <div class="grid metrics player-stat-metrics">
+            ${metric("Kehadiran", `${attendanceRate(player.id)}%`, `${sessions.filter(session => (session.attendance || {})[player.id]).length} sesi tercatat`, "✓")}
+            ${metric("Pertandingan", matches.length, "Sesuai roster dan statistik", "◎")}
+            ${metric("Ace", total("Ace"), "Total sukses", "↗")}
+            ${metric("Poin serangan", total("Serangan"), "Total sukses", "✓")}
+          </div>
+          <div class="toolbar-actions player-detail-actions"><button class="button secondary" data-open-anthropometry="${player.id}">Antropometri</button><button class="button secondary" data-edit-player="${player.id}">Edit profil</button><button class="button orange" data-delete-player="${player.id}">Hapus pemain</button></div>
+          <section class="card player-history-card"><div class="card-head"><div><h2 class="card-title">Riwayat kehadiran</h2><p class="card-sub">${sessions.length} sesi latihan</p></div></div><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Sesi</th><th>Status</th></tr></thead><tbody>${attendanceRows}</tbody></table></div></section>
+          <section class="card player-history-card"><div class="card-head"><div><h2 class="card-title">Statistik setiap pertandingan</h2><p class="card-sub">Jumlah sukses / gagal untuk setiap teknik</p></div></div><div class="table-wrap"><table class="player-match-stats"><thead><tr><th>Pertandingan</th><th>Tanggal</th>${skills.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>${matchRows}</tbody></table></div></section>`;
       }
       function sessionAttendanceComplete(session) {
         return data.players.length > 0 && data.players.every(player =>
@@ -390,19 +556,19 @@
         if (!sessions.length) return '<div class="empty">Belum ada sesi latihan. Tambahkan sesi untuk mulai mencatat kehadiran.</div>';
         return `<div class="table-wrap"><table><thead><tr><th>Judul sesi</th><th>Tanggal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${sessions.map(session => {
           const complete = sessionAttendanceComplete(session);
-          return `<tr><td><strong>${esc(session.title)}</strong></td><td>${formatDate(session.date)}</td><td><span class="tag ${complete ? "green" : "red"}">${complete ? "Tersimpan" : "Belum Diisi"}</span></td><td><div class="toolbar-actions"><button class="button secondary small" data-session-review="${session.id}">Tinjau</button><button class="button small" data-session-edit="${session.id}">Edit</button><button class="close-x" data-delete-session="${session.id}" title="Hapus sesi" aria-label="Hapus sesi ${esc(session.title)}">×</button></div></td></tr>`;
+          return `<tr><td><strong>${esc(session.title)}</strong></td><td>${formatDate(session.date)}</td><td><span class="tag ${complete ? "green" : "red"}">${complete ? "Tersimpan" : "Belum Diisi"}</span></td><td><div class="toolbar-actions"><button class="button secondary small" data-session-review="${session.id}">Pratinjau</button><button class="button secondary small" data-session-edit="${session.id}">Edit</button><button class="button orange small" data-delete-session="${session.id}">Hapus</button></div></td></tr>`;
         }).join("")}</tbody></table></div>`;
       }
       function attendancePage() {
         const sessions = data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date));
-        return `${heading("Kehadiran & sesi latihan", "Kelola sesi, tinjau catatan, dan isi absensi pemain.", '<button class="button" data-action="new-session">＋ Tambah Sesi</button>')}
+        return `${heading("Latihan", "Kelola jadwal sesi latihan dan isi absensi pemain.", '<button class="button" data-action="new-session">＋ Tambah Sesi</button>')}
           <section class="card"><div class="card-head"><div><h2 class="card-title">Daftar sesi latihan</h2><p class="card-sub">${sessions.length} sesi</p></div></div>${sessionListMarkup(sessions)}</section>`;
       }
       function schedulePage() {
+        const allActivities = calendarActivities().sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || ""));
         const monthKey = dateKey(calendarMonth).slice(0, 7);
-        const monthEvents = data.events
-          .filter(event => event.date && event.date.slice(0, 7) === monthKey)
-          .sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || ""));
+        const monthEvents = allActivities
+          .filter(event => event.date && event.date.slice(0, 7) === monthKey);
         const firstWeekday = (new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay() + 6) % 7;
         const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
         const cellCount = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
@@ -419,20 +585,19 @@
             ${dayEvents.length ? `<span class="calendar-day-count">${dayEvents.length} agenda</span>` : ""}
           </button>`;
         }).join("");
-        const events = selectedCalendarDate
-          ? monthEvents.filter(event => event.date === selectedCalendarDate)
-          : monthEvents;
         const canEdit = ["admin", "coach"].includes(activeRole());
         const monthLabel = calendarMonth.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
-        return `${heading("Kalender kegiatan", "Lihat agenda dalam grid bulanan dan catat kegiatan tim.", canEdit ? '<button class="button" data-action="add-event">＋ Tambah catatan</button>' : "")}
+        const actionDate = selectedCalendarDate || todayISO();
+        return `${heading("Kalender kegiatan", "Pilih tanggal untuk menjadwalkan sesi latihan atau pertandingan.", "")}
           <section class="card calendar-card">
             <div class="calendar-toolbar"><button class="icon-button" data-calendar-month="previous" aria-label="Bulan sebelumnya">‹</button><strong>${esc(monthLabel)}</strong><div><button class="button secondary small" data-calendar-today>Hari ini</button><button class="icon-button" data-calendar-month="next" aria-label="Bulan berikutnya">›</button></div></div>
             <div class="calendar-weekdays">${["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"].map(day => `<span>${day}</span>`).join("")}</div>
             <div class="calendar-grid">${cells}</div>
-            <div class="calendar-legend"><span><i class="calendar-dot"></i> Latihan / kegiatan</span><span><i class="calendar-dot blue"></i> Sparring</span><span><i class="calendar-dot orange"></i> Turnamen</span></div>
+            <div class="calendar-legend"><span><i class="calendar-dot"></i> Latihan / kegiatan</span><span><i class="calendar-dot blue"></i> Pertandingan / sparring</span><span><i class="calendar-dot orange"></i> Turnamen</span></div>
           </section>
-          <section class="card wide-card"><div class="toolbar"><div><strong style="font-size:13px">${selectedCalendarDate ? `Agenda ${formatDate(selectedCalendarDate)}` : `Agenda ${esc(monthLabel)}`}</strong><span class="card-sub" style="margin-left:8px">${events.length} catatan</span></div><div>${selectedCalendarDate ? '<button class="button secondary small" data-calendar-clear>Semua agenda bulan ini</button>' : ""}${canEdit ? '<span class="tag blue">Lokasi opsional</span>' : ""}</div></div>
-          <div class="event-list">${events.length ? events.map(e => `<div class="event-row"><div class="date-tile"><strong>${dateObj(e.date).getDate()}</strong><span>${shortMonth(e.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(e.title)}</div><div class="event-meta">${formatDate(e.date)}${e.time ? ` · ${esc(e.time)}` : ""}${e.location ? ` · ${esc(e.location)}` : ""}${e.notes ? ` · ${esc(e.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(e.type)}">${esc(e.type)}</span>${canEdit ? `<button class="close-x" title="Hapus catatan" data-delete-event="${e.id}">×</button>` : ""}</div>`).join("") : '<div class="empty">Belum ada agenda untuk pilihan ini.</div>'}</div></section>`;
+          <section class="card wide-card"><div class="toolbar"><div><strong style="font-size:13px">Seluruh kegiatan</strong><span class="card-sub" style="margin-left:8px">${allActivities.length} kegiatan</span></div>
+          ${canEdit ? `<div class="toolbar-actions"><span class="tag blue">${selectedCalendarDate ? `Tanggal dipilih: ${formatDate(selectedCalendarDate)}` : `Tanggal: ${formatDate(actionDate)}`}</span><button class="button secondary small" data-action="new-session" data-calendar-date="${esc(actionDate)}">＋ Tambah sesi</button><button class="button small" data-action="add-match" data-calendar-date="${esc(actionDate)}">＋ Tambah pertandingan</button></div>` : ""}
+          </div><div class="event-list">${allActivities.length ? allActivities.map(event => `<div class="event-row"><div class="date-tile"><strong>${dateObj(event.date).getDate()}</strong><span>${shortMonth(event.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(event.type)}">${esc(event.type)}</span>${canEdit && event.source === "event" ? `<button class="close-x" title="Hapus catatan" data-delete-event="${event.id}">×</button>` : ""}</div>`).join("") : '<div class="empty">Belum ada kegiatan.</div>'}</div></section>`;
       }
       function teamsPage() {
         const teams = (data.teams || []).slice().sort((a, b) => a.name.localeCompare(b.name));
@@ -446,16 +611,35 @@
           <p class="privacy-note">Pemain dapat terdaftar di lebih dari satu tim. Logo PNG, JPG, atau WebP maksimal 200 KB.</p>`;
       }
       function trainingPage() {
-        const sorted = data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date));
-        const activities = data.events
-          .filter(event => ["Latihan", "Latihan pribadi", "Latihan tim", "Les", "Pertandingan", "Sparring", "Turnamen"].includes(event.type))
-          .slice().sort((a, b) => b.date.localeCompare(a.date));
-        return `${heading("Latihan", "Kelola kegiatan dan sesi latihan, termasuk absensi serta evaluasi pemain.", '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="button secondary" data-action="add-training-activity">＋ Kegiatan</button><button class="button" data-action="new-session">＋ Tambah Sesi</button></div>')}
-          <section class="card"><div class="card-head"><div><h2 class="card-title">Kegiatan latihan dan pertandingan</h2><p class="card-sub">Latihan pribadi, latihan tim, les, dan agenda pertandingan</p></div></div>
-            ${activities.length ? `<div class="event-list">${activities.map(event => `<div class="event-row"><div class="date-tile"><strong>${new Date(`${event.date}T12:00:00`).getDate()}</strong><span>${shortMonth(event.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(event.type)}">${esc(event.type)}</span><button class="close-x" data-delete-event="${event.id}" aria-label="Hapus ${esc(event.title)}">×</button></div>`).join("")}</div>` : '<div class="empty">Belum ada kegiatan. Tambahkan kegiatan pribadi, tim, les, atau pertandingan.</div>'}
-          </section>
-          <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Sesi latihan</h2><p class="card-sub">Tinjau detail sesi atau ubah absensi dan evaluasi.</p></div></div>${sessionListMarkup(sorted)}</section>
-          <p class="privacy-note">Catatan sesi menyimpan materi, kehadiran, dan evaluasi individu. Agenda kegiatan tetap tampil di kalender; statistik pertandingan live dicatat dari menu Statistik.</p>`;
+        const totals = matchSkillTotals(data.matches);
+        const decidedMatches = data.matches.map(match => matchSetResult(match)).filter(result => result.winner);
+        const wins = decidedMatches.filter(result => result.winner === "team").length;
+        const winPercentage = decidedMatches.length ? `${Math.round(wins / decidedMatches.length * 100)}%` : "—";
+        const matches = data.matches.slice().sort((a, b) => {
+          const aUpcoming = a.date >= todayISO(), bUpcoming = b.date >= todayISO();
+          return aUpcoming !== bUpcoming ? Number(bUpcoming) - Number(aUpcoming)
+            : aUpcoming ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date);
+        });
+        const rows = matches.length ? `<div class="table-wrap"><table><thead><tr><th>Pertandingan</th><th>Tanggal</th><th>Set / hasil</th><th>Ace</th><th>Poin serangan</th><th>Poin receive</th><th>Poin blok</th><th>Aksi</th></tr></thead><tbody>${matches.map(match => {
+          const stats = matchSkillTotals([match]);
+          const result = matchSetResult(match);
+          const setScores = result.sets.map(set => `${set.index + 1}: ${set.teamPoints}-${set.opponentPoints}`).join(" · ");
+          const resultLabel = result.winner === "team" ? "Menang" : result.winner === "opponent" ? "Kalah" : "Belum ada hasil";
+          const rosterCount = Array.isArray(match.playerIds)
+            ? match.playerIds.length
+            : data.players.length;
+          return `<tr><td><strong>${esc(match.name)}</strong><span class="position">${esc(matchTeamName(match))} · vs ${esc(match.opponent || "Lawan belum diisi")} · ${rosterCount} pemain</span></td><td>${formatDate(match.date)}</td><td>${setScores ? `${setScores}<span class="position">${resultLabel} ${result.teamSets}-${result.opponentSets}</span>` : "—"}</td><td>${stats.ace}</td><td>${stats.attack}</td><td>${stats.receive}</td><td>${stats.block}</td><td><div class="toolbar-actions"><button class="button secondary small" data-preview-match="${match.id}">Pratinjau</button><button class="button secondary small" data-edit-match="${match.id}">Edit</button><button class="button small" data-open-live-match="${match.id}">Catat live</button><button class="button orange small" data-delete-match="${match.id}">Hapus</button></div></td></tr>`;
+        }).join("")}</tbody></table></div>` : '<div class="empty">Belum ada pertandingan. Buat pertandingan pertama untuk memulai.</div>';
+        return `${heading("Pertandingan", "Lihat statistik, jadwal, dan riwayat pertandingan tim.", '<button class="button" data-action="add-match">＋ Pertandingan</button>')}
+          <div class="grid metrics" style="grid-template-columns:repeat(auto-fit,minmax(155px,1fr));margin-bottom:16px">
+            ${metric("Total pertandingan", data.matches.length, "Laga tercatat", "◎")}
+            ${metric("Persentase menang", winPercentage, `${wins} menang dari ${decidedMatches.length} hasil tercatat`, "🏆")}
+            ${metric("Total ace", totals.ace, "Seluruh laga", "↗")}
+            ${metric("Poin serangan", totals.attack, "Seluruh laga", "✓")}
+            ${metric("Poin receive", totals.receive, "Seluruh laga", "◎")}
+            ${metric("Poin blok", totals.block, "Seluruh laga", "▣")}
+          </div>
+          <section class="card"><div class="card-head"><div><h2 class="card-title">Jadwal dan riwayat pertandingan</h2><p class="card-sub">${matches.length} pertandingan</p></div></div>${rows}</section>`;
       }
       function matchesPage() {
         const match = data.matches.find(m => Number(m.id) === Number(selectedMatchId));
@@ -474,54 +658,36 @@
       }
       function liveMatchesPage() {
         const match = data.matches.find(item => Number(item.id) === Number(selectedMatchId));
-        const activities = data.events
-          .filter(event => ["Latihan", "Latihan pribadi", "Latihan tim", "Les"].includes(event.type))
-          .slice().sort((a, b) => b.date.localeCompare(a.date));
-        const sessions = data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date));
-        const allStats = data.matches.flatMap(item => item.stats || []);
-        const totalSuccess = allStats.reduce((sum, stat) => sum + Number(stat.success || 0), 0);
-        const totalErrors = allStats.reduce((sum, stat) => sum + Number(stat.errors || 0), 0);
-        const matchActivities = data.events
-          .filter(event => ["Pertandingan", "Sparring", "Turnamen"].includes(event.type))
-          .slice().sort((a, b) => b.date.localeCompare(a.date));
         const players = match
           ? data.players.filter(player => !Array.isArray(match.playerIds) || match.playerIds.map(Number).includes(Number(player.id)))
           : [];
-        const trainingRows = [
-          ...sessions.map(session => ({ date: session.date, title: session.title, detail: `${(session.drills || []).length} materi · ${Object.values(session.attendance || {}).filter(status => status === "Hadir").length}/${data.players.length} hadir`, type: "Sesi latihan" })),
-          ...activities.map(event => ({ date: event.date, title: event.title, detail: [event.time, event.location].filter(Boolean).join(" · "), type: event.type }))
-        ].sort((a, b) => b.date.localeCompare(a.date));
-        const matchRows = [
-          ...data.matches.map(item => {
-            const stats = item.stats || [];
-            const successes = stats.reduce((sum, stat) => sum + Number(stat.success || 0), 0);
-            const errors = stats.reduce((sum, stat) => sum + Number(stat.errors || 0), 0);
-            const attempts = successes + errors;
-            return { date: item.date, title: item.opponent ? `${item.name} · ${item.opponent}` : item.name, detail: `${successes} sukses · ${errors} gagal · ${attempts ? Math.round(successes / attempts * 100) : 0}% efisiensi`, type: "Statistik laga", matchId: item.id };
-          }),
-          ...matchActivities.map(event => ({ date: event.date, title: event.title, detail: [event.time, event.location].filter(Boolean).join(" · "), type: event.type }))
-        ].sort((a, b) => b.date.localeCompare(a.date));
-        const recapRows = rows => rows.length ? `<div class="event-list">${rows.map(row => `<div class="event-row"><div class="date-tile"><strong>${new Date(`${row.date}T12:00:00`).getDate()}</strong><span>${shortMonth(row.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(row.title)}</div><div class="event-meta">${formatDate(row.date)}${row.detail ? ` · ${esc(row.detail)}` : ""}</div></div><span class="tag blue">${esc(row.type)}</span>${row.matchId ? `<button class="button secondary small" data-edit-match="${row.matchId}">Edit</button>` : ""}</div>`).join("")}</div>` : '<div class="empty">Belum ada data untuk direkap.</div>';
-        return `${heading("Statistik", "Rekap kegiatan latihan dan pertandingan, serta pencatatan performa live.", '<button class="button" data-action="add-match">＋ Pertandingan</button>')}
-          <div class="grid metrics" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px">
-            ${metric("Sesi latihan", sessions.length + activities.length, "Sesi dan kegiatan", "↗")}
-            ${metric("Pertandingan", data.matches.length + matchActivities.length, "Laga dan agenda", "◎")}
-            ${metric("Aksi sukses", totalSuccess, "Semua pertandingan tercatat", "✓")}
-            ${metric("Aksi gagal", totalErrors, "Semua pertandingan tercatat", "×")}
+        const teamName = match ? matchTeamName(match) : "Tim";
+        const opponentName = match && match.opponent ? match.opponent : "Tim lawan";
+        const playerCards = players.map(player => `<article class="card live-player"><div class="player-name"><span class="player-avatar">${initials(player.name)}</span><span>${esc(player.name)}<span class="position">${esc(player.position)} · #${esc(player.number)}</span></span></div><div class="live-skills">${["Block", "Attack", "Serve", "Receive", "Ace"].map(skill => {
+          const skillStats = (match.stats || []).filter(item => Number(item.playerId) === Number(player.id) && item.skill === skill);
+          const stat = {
+            success: skillStats.reduce((sum, item) => sum + Number(item.success || 0), 0),
+            errors: skillStats.reduce((sum, item) => sum + Number(item.errors || 0), 0)
+          };
+          const label = skill === "Attack" ? "Serangan" : skill === "Block" ? "Blok" : skill === "Serve" ? "Servis" : skill;
+          const successes = Number(stat.success || 0), errors = Number(stat.errors || 0);
+          return `<div class="live-skill"><div><strong>${label}</strong><span>${successes} sukses · ${errors} gagal</span></div><button class="button secondary small" data-live-stat="${player.id}:${skill}:success:-1" aria-label="Kurangi sukses ${label} ${esc(player.name)}" title="Koreksi sukses" ${successes ? "" : "disabled"}>−</button><button class="button small live-success" data-live-stat="${player.id}:${skill}:success:1" aria-label="Tambah sukses ${label} ${esc(player.name)}" title="Tambah sukses">+</button><button class="button secondary small" data-live-stat="${player.id}:${skill}:errors:-1" aria-label="Kurangi gagal ${label} ${esc(player.name)}" title="Koreksi gagal" ${errors ? "" : "disabled"}>−</button><button class="button orange small" data-live-stat="${player.id}:${skill}:errors:1" aria-label="Tambah gagal ${label} ${esc(player.name)}" title="Tambah gagal">+</button></div>`;
+        }).join("")}</div></article>`).join("");
+        const sets = Array.from({ length: 5 }, (_, index) => (match && match.sets || [])[index] || {});
+        const setEditor = match ? `<section class="match-set-section"><h3 class="card-title">Hasil per set</h3><div class="match-set-head"><span>Set</span><span>${esc(teamName)}</span><span></span><span>${esc(opponentName)}</span></div>
+          <div class="match-set-list">${sets.map((set, index) => `<div class="match-set-row"><strong>Set ${index + 1}</strong><input type="number" min="0" max="99" data-match-set="${index}" data-set-side="teamPoints" aria-label="Poin Set ${index + 1} ${esc(teamName)}" value="${esc(set.teamPoints == null ? "" : set.teamPoints)}"><span>–</span><input type="number" min="0" max="99" data-match-set="${index}" data-set-side="opponentPoints" aria-label="Poin Set ${index + 1} ${esc(opponentName)}" value="${esc(set.opponentPoints == null ? "" : set.opponentPoints)}"></div>`).join("")}</div><p class="card-sub">Isi skor untuk setiap set yang dimainkan. Maksimal 5 set.</p></section>` : "";
+        const liveContent = match ? `
+          <div class="live-roster">${playerCards || '<div class="empty">Roster pertandingan kosong. Edit pertandingan untuk memilih pemain.</div>'}</div>
+          ${setEditor}
+          <div class="form-grid" style="padding:18px">
+            <div class="field full"><label>Catatan / Evaluasi Umum</label><textarea id="match-general-notes" maxlength="2000" placeholder="Catatan jalannya pertandingan">${esc(match.notes || "")}</textarea></div>
+            <div class="field full"><strong class="card-title">Evaluasi Individu</strong></div>
+            ${players.map(player => `<div class="field full"><label>${esc(player.name)}</label><textarea data-match-evaluation="${player.id}" maxlength="500" placeholder="Evaluasi individu">${esc((match.evaluations || {})[player.id] || "")}</textarea></div>`).join("")}
           </div>
-          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:start;margin-bottom:16px">
-            <section class="card"><div class="card-head"><div><h2 class="card-title">Rekap latihan</h2><p class="card-sub">${trainingRows.length} sesi dan kegiatan</p></div><button class="button secondary small" data-page="training">Buka Latihan</button></div>${recapRows(trainingRows)}</section>
-            <section class="card"><div class="card-head"><div><h2 class="card-title">Rekap pertandingan</h2><p class="card-sub">${matchRows.length} laga dan agenda</p></div></div>${recapRows(matchRows)}</section>
-          </div>
-          <section class="card"><div class="attendance-head"><div><div class="card-title">Catat live pertandingan</div><div class="card-sub">${match ? esc(match.opponent || match.name) + " · " + formatDate(match.date) + ` · ${players.length} pemain` + (matchStatsDirty ? " · perubahan belum disimpan" : "") : "Pilih atau tambahkan pertandingan"}</div></div><div class="inline-form"><select class="select-mini" id="match-select">${data.matches.map(item => `<option value="${item.id}" ${match && Number(item.id) === Number(match.id) ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select><button class="button secondary small" data-action="add-stat" ${match ? "" : "disabled"}>＋ Input manual</button><button class="button small" data-action="save-live-stats" ${match && matchStatsDirty ? "" : "disabled"}>Simpan statistik</button></div></div>
-          ${match ? `<div class="live-roster">${players.length ? players.map(player => `<article class="card live-player"><div class="player-name"><span class="player-avatar">${initials(player.name)}</span><span>${esc(player.name)}<span class="position">${esc(player.position)} · #${esc(player.number)}</span></span></div><div class="live-skills">${["Block", "Attack", "Serve", "Receive"].map(skill => {
-            const stat = (match.stats || []).find(item => Number(item.playerId) === Number(player.id) && item.skill === skill) || { success: 0, errors: 0 };
-            const label = skill === "Attack" ? "Serangan" : skill === "Block" ? "Blok" : skill === "Serve" ? "Servis" : "Receive";
-            const successes = Number(stat.success || 0), errors = Number(stat.errors || 0);
-            return `<div class="live-skill"><div><strong>${label}</strong><span>${successes} sukses · ${errors} gagal</span></div><button class="button secondary small" data-live-stat="${player.id}:${skill}:success:-1" aria-label="Kurangi sukses ${label} ${esc(player.name)}" title="Koreksi sukses" ${successes ? "" : "disabled"}>−</button><button class="button small live-success" data-live-stat="${player.id}:${skill}:success:1" aria-label="Tambah sukses ${label} ${esc(player.name)}" title="Tambah sukses">+</button><button class="button secondary small" data-live-stat="${player.id}:${skill}:errors:-1" aria-label="Kurangi gagal ${label} ${esc(player.name)}" title="Koreksi gagal" ${errors ? "" : "disabled"}>−</button><button class="button orange small" data-live-stat="${player.id}:${skill}:errors:1" aria-label="Tambah gagal ${label} ${esc(player.name)}" title="Tambah gagal">+</button></div>`;
-          }).join("")}</div></article>`).join("") : '<div class="empty">Tambahkan pemain dan pilih roster pertandingan untuk mulai mencatat.</div>'}</div>
-          <details class="manual-stats"><summary>Statistik manual yang sudah dicatat</summary>${match.stats && match.stats.length ? `<div class="table-wrap"><table><thead><tr><th>Pemain</th><th>Teknik</th><th>Sukses</th><th>Gagal</th><th></th></tr></thead><tbody>${match.stats.map(stat => { const player = playerById(stat.playerId); return player ? `<tr><td>${esc(player.name)}</td><td>${esc(stat.skill)}</td><td>${Number(stat.success || 0)}</td><td>${Number(stat.errors || 0)}</td><td><button class="close-x" data-delete-stat="${match.id}:${player.id}:${esc(stat.skill)}">×</button></td></tr>` : ""; }).join("")}</tbody></table></div>` : '<div class="empty">Belum ada aksi dicatat.</div>'}</details>` : '<div class="empty">Buat pertandingan untuk mulai mencatat statistik.</div>'}
-          </section><p class="privacy-note">Gunakan + untuk mencatat aksi dan − untuk mengoreksi salah klik. Simpan statistik setelah selesai mencatat.</p>`;
+          <div class="modal-actions" style="padding:0 18px 18px"><button class="button" data-action="save-live-stats" ${matchStatsDirty ? "" : "disabled"}>Simpan pertandingan</button></div>` : '<div class="empty">Buat pertandingan untuk mulai mencatat statistik live.</div>';
+        return `${heading("Catat live pertandingan", "Catat aksi pemain dan simpan evaluasi pertandingan.", '<button class="button secondary" data-action="add-match">＋ Pertandingan</button>')}
+          <section class="card"><div class="attendance-head"><div><div class="card-title">Statistik live pemain</div><div class="card-sub">${match ? `${esc(match.name)} · ${esc(teamName)} vs ${esc(match.opponent || "Lawan belum diisi")} · ${formatDate(match.date)} · ${players.length} pemain${matchStatsDirty ? " · perubahan belum disimpan" : ""}` : "Pilih atau buat pertandingan"}</div></div><div class="inline-form"><select class="select-mini" id="match-select">${data.matches.map(item => `<option value="${item.id}" ${match && Number(item.id) === Number(match.id) ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select><button class="button secondary small" data-action="add-stat" ${match ? "" : "disabled"}>＋ Input manual</button></div></div>
+          ${liveContent}</section>`;
       }
       function targetsPage() {
         const player = activeRole() === "player"
@@ -532,22 +698,21 @@
         const period = selectedTargetPeriod;
         const key = `${player.id}:${period}`;
         const saved = data.targets && data.targets[key] || {};
+        const defaults = targetDefaultsForPosition(player.position, period);
         const current = targetMetrics(player.id, period);
         const metrics = [
-          { key: "serveSuccess", label: "Servis sukses", unit: "aksi", icon: "↗" },
-          { key: "serveErrors", label: "Error servis maksimal", unit: "error", icon: "!" },
-          { key: "receiveAverage", label: "Rata-rata receive", unit: "%", icon: "◎" },
-          { key: "attackEfficiency", label: "Efisiensi serangan", unit: "%", icon: "⌁" },
-          { key: "blockEffective", label: "Blok efektif", unit: "aksi", icon: "▣" },
-          { key: "practicePerWeek", label: "Latihan per minggu", unit: "sesi/minggu", icon: "✓" }
+          { key: "blockSuccess", label: "Blok berhasil", unit: "aksi", icon: "▣", isMaximum: false },
+          { key: "attackSuccess", label: "Serangan berhasil", unit: "aksi", icon: "⌁", isMaximum: false },
+          { key: "serveErrors", label: "Servis gagal", unit: "aksi", icon: "!", isMaximum: true },
+          { key: "receiveErrors", label: "Receive gagal", unit: "aksi", icon: "◎", isMaximum: true }
         ];
         const editable = ["admin", "coach"].includes(activeRole());
         const range = targetDateRange(period);
-        return `${heading("Target performa", "Bandingkan target dan capaian berdasarkan statistik pertandingan serta kehadiran latihan.", "")}
-          <section class="card"><div class="toolbar target-toolbar"><div class="target-player-picker"><span class="target-kicker">${activeRole() === "player" ? "TARGET PRIBADI" : "PILIH PEMAIN"}</span>${activeRole() === "player" ? `<strong>${esc(player.name)} · #${esc(player.number)}</strong>` : `<select class="select-mini" id="target-player">${data.players.map(item => `<option value="${item.id}" ${Number(item.id) === Number(player.id) ? "selected" : ""}>${esc(item.name)} · #${esc(item.number)}</option>`).join("")}</select>`}</div><label class="target-period-picker" for="target-period"><span>Periode</span><select class="select-mini" id="target-period" aria-label="Periode target"><option value="week" ${period === "week" ? "selected" : ""}>Minggu ini</option><option value="month" ${period === "month" ? "selected" : ""}>Bulan ini</option></select></label></div>
-          <div class="target-grid">${metrics.map(item => `<article class="card target-card"><div class="target-card-head"><span class="target-icon">${item.icon}</span><span class="target-kicker">CAPAIAN</span></div><div class="target-label">${item.label}</div><div class="target-value-row"><strong class="target-value">${current[item.key]}</strong><span>${item.unit}</span></div><label class="target-input-label" for="target-${item.key}">Target ${item.unit}</label><div class="target-input-control"><input id="target-${item.key}" type="number" min="0" step="${item.key === "practicePerWeek" ? "0.1" : "1"}" data-target-value="${item.key}" value="${saved[item.key] == null ? "" : esc(saved[item.key])}" placeholder="Atur target" ${editable ? "" : "disabled"}><span>${item.unit}</span></div></article>`).join("")}</div>
+        return `${heading("Target performa", "Target memakai jumlah aksi sukses dan gagal yang dicatat pada pertandingan live.", "")}
+          <section class="card"><div class="toolbar target-toolbar"><div class="target-player-picker"><span class="target-kicker">${activeRole() === "player" ? "TARGET PRIBADI" : "PILIH PEMAIN"}</span>${activeRole() === "player" ? `<strong>${esc(player.name)} · ${esc(player.position)}</strong>` : `<select class="select-mini" id="target-player">${data.players.map(item => `<option value="${item.id}" ${Number(item.id) === Number(player.id) ? "selected" : ""}>${esc(item.name)} · ${esc(item.position)}</option>`).join("")}</select>`}</div><label class="target-period-picker" for="target-period"><span>Periode</span><select class="select-mini" id="target-period" aria-label="Periode target"><option value="week" ${period === "week" ? "selected" : ""}>Minggu ini</option><option value="month" ${period === "month" ? "selected" : ""}>Bulan ini</option></select></label></div>
+          <div class="target-grid">${metrics.map(item => `<article class="card target-card"><div class="target-card-head"><span class="target-icon">${item.icon}</span><span class="target-kicker">CAPAIAN PERIODE</span></div><div class="target-label">${item.label}</div><div class="target-value-row"><strong class="target-value">${current[item.key]}</strong><span>${item.unit}</span></div><label class="target-input-label" for="target-${item.key}">${item.isMaximum ? "Maksimal" : "Target"} ${item.unit}</label><div class="target-input-control"><input id="target-${item.key}" type="number" min="0" step="1" data-target-value="${item.key}" value="${saved[item.key] == null ? defaults[item.key] : esc(saved[item.key])}" placeholder="Atur target" ${editable ? "" : "disabled"}><span>${item.unit}</span></div></article>`).join("")}</div>
           ${editable ? '<div class="target-actions"><button class="button" data-action="save-target">Simpan target</button></div>' : '<p class="privacy-note">Target ditetapkan oleh pelatih. Perbarui data dengan pelatih jika target perlu disesuaikan.</p>'}
-          <p class="privacy-note">Periode data ${formatDate(range.start)}–${formatDate(range.end)}. Receive dan efisiensi serangan dihitung sebagai aksi sukses ÷ total aksi. Latihan per minggu pada tampilan bulanan adalah rata-rata sesi hadir per minggu.</p></section>`;
+          <p class="privacy-note">Target awal berbeda menurut posisi (${esc(player.position)}); nilai bisa disesuaikan pelatih. Target keberhasilan adalah jumlah minimal, sedangkan servis gagal dan receive gagal adalah batas maksimal. Periode data ${formatDate(range.start)}–${formatDate(range.end)}${period === "month" ? " (nilai default bulanan = 4× target mingguan)" : ""}.</p></section>`;
       }
       function recommendationItems() {
         const items = [];
@@ -622,6 +787,7 @@
         switch (currentPage) {
           case "dashboard": return dashboardPage();
           case "players": return playersPage();
+          case "playerStats": return playerStatsPage();
           case "teams": return teamsPage();
           case "attendance": return attendancePage();
           case "schedule": return schedulePage();
@@ -636,7 +802,8 @@
       }
       function render() {
         syncRoleOptions(); renderNav();
-        const page = pages.find(p => p.id === currentPage);
+        const pageId = currentPage === "matches" ? "training" : currentPage === "playerStats" ? "players" : currentPage;
+        const page = pages.find(p => p.id === pageId);
         $("#crumb-title").textContent = page ? page.label : "Ringkasan";
         $("#content").innerHTML = pageContent();
         document.documentElement.dataset.theme = data.theme || "light";
@@ -694,12 +861,14 @@
           try {
             const result = await onSubmit(new FormData(form));
             if (result !== false) {
-              if (result !== "skip-persist" && !await persist()) {
+              const nextAction = result && typeof result === "object" ? result : null;
+              if (result !== "skip-persist" && !(nextAction && nextAction.skipPersist) && !await persist()) {
                 if (submitButton) submitButton.disabled = false;
                 return;
               }
               root.innerHTML = "";
               render();
+              if (nextAction && nextAction.openSessionId != null) editSessionModal(nextAction.openSessionId);
             } else if (submitButton) {
               submitButton.disabled = false;
             }
@@ -790,48 +959,55 @@
         });
       }
       function editPlayerModal(id) {
-        const p = playerById(id); if (!p) return;
-        const account = playerAccounts.find(item => Number(item.playerId) === Number(p.id));
-        const history = (p.history || []).slice().sort((a, b) => a.date.localeCompare(b.date));
-        showModal("Edit pemain · " + esc(p.name), `<div class="grid metrics" style="grid-template-columns:repeat(2,1fr);margin:0 0 15px;gap:9px">
-          ${metric("Tinggi", p.height + " cm", "Pengukuran terbaru", "↕")}${metric("Berat", p.weight + " kg", "Pengukuran terbaru", "⚖")}${metric("Spike reach", p.spikeReach + " cm", "Jangkauan serang", "↗")}${metric("Block reach", p.blockReach + " cm", "Jangkauan blok", "▤")}
-          </div><div class="note-item"><div class="note-title">${esc(p.position)} · #${p.number} · ${esc(p.className)}</div><div class="note-copy">${esc(p.gender || "Jenis kelamin belum diisi")} · ${p.birthDate ? `Lahir ${formatDate(p.birthDate)}` : "Tanggal lahir belum diisi"} · Kehadiran ${attendanceRate(p.id)}% · Efisiensi attack ${skillEfficiency(p.id, "Attack") === null ? "belum ada data" : skillEfficiency(p.id, "Attack") + "%"}</div></div>
-          <h3 class="card-title" style="margin:15px 0 4px">Riwayat antropometri</h3>${history.map(h => `<div class="switch-row"><span class="note-copy">${formatDate(h.date)}</span><span class="note-title">${h.height} cm · ${h.weight} kg · SR ${h.spikeReach} · BR ${h.blockReach}</span></div>`).join("")}
-          <form id="update-profile-form"><div class="form-grid" style="margin-top:15px"><div class="field"><label>Jenis kelamin (opsional)</label><select name="gender"><option value="" ${!p.gender ? "selected" : ""}>Belum diisi</option><option value="Perempuan" ${p.gender === "Perempuan" ? "selected" : ""}>Perempuan</option><option value="Laki-laki" ${p.gender === "Laki-laki" ? "selected" : ""}>Laki-laki</option></select></div><div class="field"><label>Tanggal lahir (opsional)</label><input name="birthDate" type="date" max="${todayISO()}" value="${esc(p.birthDate || "")}"></div><div class="field"><label>Tinggi (cm)</label><input name="height" type="number" value="${p.height}" min="100" max="230" required></div><div class="field"><label>Berat (kg)</label><input name="weight" type="number" value="${p.weight}" min="20" max="180" required></div><div class="field"><label>Spike reach (cm)</label><input name="spikeReach" type="number" value="${p.spikeReach}" min="100" max="350" required></div><div class="field"><label>Block reach (cm)</label><input name="blockReach" type="number" value="${p.blockReach}" min="100" max="350" required></div>
-          <h3 class="card-title field full" style="margin:8px 0 0">Akun login pemain</h3><div class="field full"><label>Username atau email</label><input name="username" type="text" maxlength="254" autocomplete="username" value="${esc(account ? account.username : "")}" placeholder="contoh: alya12"></div><div class="field full"><label>${account ? "Kata sandi baru (opsional)" : `Kata sandi (minimal ${MIN_PASSWORD_LENGTH} karakter)`}</label><input name="password" type="password" minlength="${MIN_PASSWORD_LENGTH}" maxlength="1024" autocomplete="new-password" placeholder="${account ? "Kosongkan jika tidak ingin mengganti kata sandi" : "Kosongkan jika belum ingin membuat akun"}"></div></div><p class="privacy-note">${account ? "Biarkan kata sandi kosong jika tidak ingin mengubah akun. Jika username diubah, masukkan kata sandi baru juga." : "Isi username dan kata sandi untuk membuat akun login. Kedua kolom dapat dikosongkan jika belum diperlukan."}</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button class="button">Simpan perubahan</button></div></form>`, async fd => {
+        const player = playerById(id);
+        if (!player) return;
+        const account = playerAccounts.find(item => Number(item.playerId) === Number(player.id));
+        const positions = ["Setter", "Outside Hitter", "Opposite", "Middle Blocker", "Libero"];
+        showModal("Edit profil pemain · " + esc(player.name), `<form><div class="form-grid">
+          <div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" value="${esc(player.name)}"></div>
+          <div class="field"><label>Posisi</label><select name="position">${positions.map(position => `<option ${player.position === position ? "selected" : ""}>${position}</option>`).join("")}</select></div>
+          <div class="field"><label>Nomor punggung</label><input name="number" type="number" min="0" max="99" value="${esc(player.number)}" required></div>
+          <div class="field"><label>Kelas</label><input name="className" maxlength="40" value="${esc(player.className)}" required></div>
+          <div class="field"><label>Jenis kelamin</label><select name="gender"><option value="" ${!player.gender ? "selected" : ""}>Belum diisi</option><option value="Perempuan" ${player.gender === "Perempuan" ? "selected" : ""}>Perempuan</option><option value="Laki-laki" ${player.gender === "Laki-laki" ? "selected" : ""}>Laki-laki</option></select></div>
+          <div class="field full"><label>Tanggal lahir (opsional)</label><input name="birthDate" type="date" max="${todayISO()}" value="${esc(player.birthDate || "")}"></div>
+          <h3 class="card-title field full" style="margin:8px 0 0">Akun login pemain</h3>
+          <div class="field full"><label>Username atau email</label><input name="username" type="text" maxlength="254" autocomplete="username" value="${esc(account ? account.username : "")}" placeholder="contoh: alya12"></div>
+          <div class="field full"><label>${account ? "Kata sandi baru (opsional)" : `Kata sandi (minimal ${MIN_PASSWORD_LENGTH} karakter)`}</label><input name="password" type="password" minlength="${MIN_PASSWORD_LENGTH}" maxlength="1024" autocomplete="new-password" placeholder="${account ? "Kosongkan jika tidak ingin mengganti kata sandi" : "Kosongkan jika belum ingin membuat akun"}"></div>
+          </div><p class="privacy-note">${account ? "Biarkan kata sandi kosong jika tidak ingin mengubah akun. Jika username diubah, masukkan kata sandi baru juga." : "Isi username dan kata sandi untuk membuat akun login. Kedua kolom dapat dikosongkan jika belum diperlukan."}</p>
+          <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan profil</button></div></form>`, async fd => {
+          const name = String(fd.get("name") || "").trim();
+          const className = String(fd.get("className") || "").trim();
           const username = String(fd.get("username") || "").trim().toLowerCase();
           const password = String(fd.get("password") || "");
           const accountChanged = account
             ? username !== account.username || Boolean(password)
             : Boolean(username || password);
+          if (!name || !className) throw new Error("Nama pemain dan kelas wajib diisi.");
           if (accountChanged && (!username || !password)) {
             throw new Error(`Isi username dan kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter untuk menyimpan perubahan akun.`);
           }
           if (accountChanged && password.length < MIN_PASSWORD_LENGTH) {
             throw new Error(`Kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter.`);
           }
-          const previousPlayer = JSON.parse(JSON.stringify(p));
-          p.gender = String(fd.get("gender") || "");
-          p.birthDate = String(fd.get("birthDate") || "");
-          const record = { date: todayISO(), height: Number(fd.get("height")), weight: Number(fd.get("weight")), spikeReach: Number(fd.get("spikeReach")), blockReach: Number(fd.get("blockReach")) };
-          p.height = record.height; p.weight = record.weight; p.spikeReach = record.spikeReach; p.blockReach = record.blockReach;
-          p.history = p.history || [];
-          const previous = p.history[p.history.length - 1];
-          if (!previous || ["height", "weight", "spikeReach", "blockReach"].some(key => Number(previous[key]) !== record[key])) p.history.push(record);
+          const previousPlayer = JSON.parse(JSON.stringify(player));
+          Object.assign(player, {
+            name, position: String(fd.get("position")), number: Number(fd.get("number")),
+            className, gender: String(fd.get("gender") || ""), birthDate: String(fd.get("birthDate") || "")
+          });
+          if (!await persist()) {
+            Object.assign(player, previousPlayer);
+            return false;
+          }
           if (accountChanged) {
-            if (!await persist()) {
-              Object.assign(p, previousPlayer);
-              return false;
-            }
             try {
-              const result = await api(account ? `/api/player-accounts/${p.id}` : "/api/player-accounts", {
+              const result = await api(account ? `/api/player-accounts/${player.id}` : "/api/player-accounts", {
                 method: account ? "PUT" : "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ playerId: Number(p.id), username, password })
+                body: JSON.stringify({ playerId: Number(player.id), username, password })
               });
-              playerAccounts = playerAccounts.filter(item => Number(item.playerId) !== Number(p.id)).concat(result.account);
+              playerAccounts = playerAccounts.filter(item => Number(item.playerId) !== Number(player.id)).concat(result.account);
             } catch (error) {
-              throw new Error(`Data pemain tersimpan, tetapi akun login gagal diperbarui: ${error.message}`);
+              throw new Error(`Profil pemain tersimpan, tetapi akun login gagal diperbarui: ${error.message}`);
             }
             if (activeRole() === "admin") {
               try {
@@ -839,29 +1015,81 @@
                 serverUsers = users.users;
               } catch (error) {
                 console.error("Daftar akun admin tidak dapat diperbarui.", error);
-                toast(`Pemain dan akun login tersimpan, tetapi daftar akun gagal dimuat: ${error.message}`);
+                toast(`Profil dan akun login tersimpan, tetapi daftar akun gagal dimuat: ${error.message}`);
                 return "skip-persist";
               }
             }
-            toast(account ? "Data pemain dan akun login diperbarui." : "Data pemain diperbarui dan akun login dibuat.");
-            return "skip-persist";
           }
-          toast("Profil dan riwayat antropometri diperbarui.");
+          toast(accountChanged ? "Profil pemain dan akun login diperbarui." : "Profil pemain diperbarui.");
+          return "skip-persist";
         });
       }
-      function newSessionModal() {
+      function anthropometryModal(playerId) {
+        const player = playerById(playerId);
+        if (!player) return;
+        const history = (player.history || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+        const historyRows = history.length
+          ? history.map(record => `<tr><td>${formatDate(record.date)}</td><td>${esc(record.height)} cm</td><td>${esc(record.weight)} kg</td><td>${esc(record.spikeReach)} cm</td><td>${esc(record.blockReach)} cm</td></tr>`).join("")
+          : '<tr><td colspan="5" class="empty">Riwayat antropometri belum tersedia.</td></tr>';
+        showModal("Antropometri · " + esc(player.name), `<h3 class="card-title">Riwayat antropometri</h3><div class="table-wrap anthropometry-table"><table><thead><tr><th>Tanggal</th><th>Tinggi</th><th>Berat</th><th>Spike reach</th><th>Block reach</th></tr></thead><tbody>${historyRows}</tbody></table></div>
+          <form><h3 class="card-title" style="margin:18px 0 10px">Tambah update antropometri</h3><div class="form-grid">
+            <div class="field full"><label>Tanggal pengukuran</label><input name="date" type="date" max="${todayISO()}" value="${todayISO()}" required></div>
+            <div class="field"><label>Tinggi (cm)</label><input name="height" type="number" min="100" max="230" step="1" value="${esc(player.height)}" required></div>
+            <div class="field"><label>Berat (kg)</label><input name="weight" type="number" min="20" max="180" step="0.1" value="${esc(player.weight)}" required></div>
+            <div class="field"><label>Spike reach (cm)</label><input name="spikeReach" type="number" min="100" max="350" step="1" value="${esc(player.spikeReach)}" required></div>
+            <div class="field"><label>Block reach (cm)</label><input name="blockReach" type="number" min="100" max="350" step="1" value="${esc(player.blockReach)}" required></div>
+          </div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button class="button">Simpan pengukuran</button></div></form>`, async fd => {
+          const record = {
+            date: String(fd.get("date") || ""),
+            height: Number(fd.get("height")),
+            weight: Number(fd.get("weight")),
+            spikeReach: Number(fd.get("spikeReach")),
+            blockReach: Number(fd.get("blockReach"))
+          };
+          if (!record.date || record.date > todayISO()) throw new Error("Tanggal pengukuran tidak valid.");
+          if (!Number.isInteger(record.height) || record.height < 100 || record.height > 230 ||
+            !Number.isFinite(record.weight) || record.weight < 20 || record.weight > 180 ||
+            !Number.isInteger(record.spikeReach) || record.spikeReach < 100 || record.spikeReach > 350 ||
+            !Number.isInteger(record.blockReach) || record.blockReach < 100 || record.blockReach > 350) {
+            throw new Error("Periksa kembali rentang nilai antropometri.");
+          }
+          const previousPlayer = JSON.parse(JSON.stringify(player));
+          player.history = Array.isArray(player.history) ? player.history : [];
+          const sameDateIndex = player.history.findIndex(item => item.date === record.date);
+          if (sameDateIndex >= 0) player.history[sameDateIndex] = record;
+          else player.history.push(record);
+          Object.assign(player, {
+            height: record.height, weight: record.weight,
+            spikeReach: record.spikeReach, blockReach: record.blockReach
+          });
+          if (!await persist()) {
+            Object.assign(player, previousPlayer);
+            return false;
+          }
+          toast("Data antropometri berhasil diperbarui.");
+          return "skip-persist";
+        });
+      }
+      function newSessionModal(defaultDate) {
         showModal("Tambah sesi latihan", `<form><div class="form-grid">
           <div class="field full"><label>Nama sesi</label><input name="title" required maxlength="100" placeholder="Contoh: Latihan teknik & taktik"></div>
-          <div class="field"><label>Tanggal</label><input name="date" type="date" value="${todayISO()}" required></div>
-          </div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan</button></div></form>`, fd => {
+          <div class="field"><label>Tanggal</label><input name="date" type="date" value="${esc(defaultDate || todayISO())}" required></div>
+          </div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan</button></div></form>`, async fd => {
           const title = String(fd.get("title") || "").trim();
           const date = String(fd.get("date") || "");
           if (!title || !date) return false;
-          data.sessions.unshift({
+          const session = {
             id: Date.now(), title, date, drills: [], notes: "", evaluations: {},
             attendance: {}, attendanceSaved: false
-          });
+          };
+          data.sessions.unshift(session);
+          if (!await persist()) {
+            data.sessions = data.sessions.filter(item => item !== session);
+            return false;
+          }
+          currentPage = "attendance";
           toast("Sesi latihan ditambahkan. Absensi belum diisi.");
+          return { skipPersist: true, openSessionId: session.id };
         });
       }
       function reviewSessionModal(sessionId) {
@@ -878,7 +1106,7 @@
           const player = playerById(playerId);
           return player ? `<div class="note-item"><div class="note-title">${esc(player.name)}</div><div class="note-copy">${esc(text)}</div></div>` : "";
         }).join("");
-        showModal(`${esc(session.title)} · Tinjau`, `<div class="note-item"><div class="note-title">Tanggal</div><div class="note-copy">${formatDate(session.date)}</div></div>
+        showModal(`${esc(session.title)} · Pratinjau`, `<div class="note-item"><div class="note-title">Tanggal</div><div class="note-copy">${formatDate(session.date)}</div></div>
           <div class="note-item"><div class="note-title">Status absensi</div>${attendanceRows || '<div class="note-copy">Belum ada data pemain.</div>'}</div>
           <div class="note-item"><div class="note-title">Materi latihan</div><div class="note-copy">${(session.drills || []).map(esc).join(", ") || "Belum diisi."}</div></div>
           <div class="note-item"><div class="note-title">Catatan progres / evaluasi umum</div><div class="note-copy">${esc(session.notes || "Belum diisi.")}</div></div>
@@ -986,17 +1214,99 @@
           toast("Agenda berhasil ditambahkan.");
         });
       }
-      function addMatchModal() {
-        showModal("Buat pertandingan dan pilih roster", `<form><div class="form-grid"><div class="field full"><label>Nama pertandingan</label><input name="name" required maxlength="100" placeholder="Uji Coba vs ..."></div><div class="field"><label>Lawan / turnamen</label><input name="opponent" maxlength="100" placeholder="Nama sekolah/tim"></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${todayISO()}" required></div><div class="field full"><label>Pilih pemain yang bertanding</label><div class="roster-pick">${data.players.map(p => `<label class="roster-option"><input type="checkbox" name="roster" value="${p.id}" checked><span>${esc(p.name)} · #${esc(p.number)} · ${esc(p.position)}</span></label>`).join("")}</div></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan pertandingan</button></div></form>`, fd => {
-          const playerIds = fd.getAll("roster").map(Number);
-          if (!playerIds.length) { toast("Pilih minimal satu pemain untuk pertandingan."); return false; }
-          const m = { id: Date.now(), name: String(fd.get("name")).trim(), opponent: String(fd.get("opponent") || "").trim(), date: fd.get("date"), playerIds, stats: [] };
-          data.matches.unshift(m); selectedMatchId = m.id; toast("Pertandingan ditambahkan.");
+      function addMatchModal(defaultDate) {
+        showModal("Buat pertandingan dan pilih roster", `<form><div class="form-grid"><div class="field full"><label>Nama pertandingan</label><input name="name" required maxlength="100" placeholder="Uji Coba vs ..."></div><div class="field"><label>Lawan / turnamen</label><input name="opponent" maxlength="100" placeholder="Nama sekolah/tim"></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${esc(defaultDate || todayISO())}" required></div><div class="field full"><label>Tim yang bertanding</label>${matchTeamPickerMarkup("", false)}</div><div class="field full"><label>Pilih pemain yang hadir dan bertanding</label><div class="roster-pick" id="match-roster-picker"></div></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan pertandingan</button></div></form>`, async fd => {
+          const name = String(fd.get("name") || "").trim();
+          const playerIds = Array.from(new Set(fd.getAll("roster").map(Number)));
+          if (!name) return false;
+          if (!playerIds.length) { toast("Pilih minimal satu pemain."); return false; }
+          const match = {
+            id: Date.now(), name, opponent: String(fd.get("opponent") || "").trim(),
+            date: String(fd.get("date") || ""), teamId: fd.get("teamId") ? Number(fd.get("teamId")) : null,
+            playerIds, stats: [], sets: [], notes: "", evaluations: {}
+          };
+          data.matches.unshift(match);
+          const previousSelectedMatchId = selectedMatchId;
+          selectedMatchId = match.id;
+          if (!await persist()) {
+            data.matches = data.matches.filter(item => item !== match);
+            selectedMatchId = previousSelectedMatchId;
+            return false;
+          }
+          currentPage = "matches";
+          matchStatsDirty = false;
+          toast("Pertandingan dibuat. Mulai catat statistik live.");
+          return "skip-persist";
+        });
+        bindMatchTeamPicker($("#modal-root"), null);
+      }
+      function editMatchModal(matchId) {
+        const match = data.matches.find(item => Number(item.id) === Number(matchId));
+        if (!match) return;
+        const roster = new Set((Array.isArray(match.playerIds) ? match.playerIds : data.players.map(player => player.id)).map(Number));
+        showModal("Edit pertandingan", `<form><div class="form-grid">
+          <div class="field full"><label>Nama pertandingan</label><input name="name" required maxlength="100" value="${esc(match.name)}"></div>
+          <div class="field"><label>Lawan / turnamen</label><input name="opponent" maxlength="100" value="${esc(match.opponent || "")}"></div>
+          <div class="field"><label>Tanggal</label><input name="date" type="date" required value="${esc(match.date)}"></div>
+          <div class="field full"><label>Tim yang bertanding</label>${matchTeamPickerMarkup(match.teamId, true)}</div>
+          <div class="field full"><label>Pilih roster pemain yang hadir</label><div class="roster-pick" id="match-roster-picker"></div></div>
+          </div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan perubahan</button></div></form>`, async fd => {
+          const name = String(fd.get("name") || "").trim();
+          const playerIds = Array.from(new Set(fd.getAll("roster").map(Number)));
+          if (!name) return false;
+          if (!playerIds.length) { toast("Pilih minimal satu pemain."); return false; }
+          const previous = JSON.parse(JSON.stringify(match));
+          Object.assign(match, {
+            name, opponent: String(fd.get("opponent") || "").trim(), date: String(fd.get("date") || ""),
+            teamId: fd.get("teamId") ? Number(fd.get("teamId")) : null, playerIds,
+            stats: (match.stats || []).filter(stat => playerIds.includes(Number(stat.playerId))),
+            evaluations: Object.fromEntries(Object.entries(match.evaluations || {}).filter(([playerId]) => playerIds.includes(Number(playerId))))
+          });
+          if (!await persist()) {
+            Object.assign(match, previous);
+            return false;
+          }
+          selectedMatchId = match.id;
+          currentPage = "training";
+          matchStatsDirty = false;
+          toast("Pertandingan diperbarui.");
+          return "skip-persist";
+        });
+        bindMatchTeamPicker($("#modal-root"), Array.from(roster));
+      }
+      function previewMatchModal(matchId) {
+        const match = data.matches.find(item => Number(item.id) === Number(matchId));
+        if (!match) return;
+        const playerIds = Array.isArray(match.playerIds) ? match.playerIds.map(Number) : data.players.map(player => Number(player.id));
+        const roster = data.players.filter(player => playerIds.includes(Number(player.id)));
+        const totals = matchSkillTotals([match]);
+        const setResult = matchSetResult(match);
+        const setRows = setResult.sets.length
+          ? `<div class="table-wrap match-score-preview"><table><thead><tr><th>Set</th><th>${esc(matchTeamName(match))}</th><th>${esc(match.opponent || "Lawan")}</th></tr></thead><tbody>${setResult.sets.map(set => `<tr><td>Set ${set.index + 1}</td><td>${esc(set.teamPoints)}</td><td>${esc(set.opponentPoints)}</td></tr>`).join("")}</tbody></table></div><p class="card-sub">Hasil: ${setResult.winner === "team" ? "Menang" : setResult.winner === "opponent" ? "Kalah" : "Belum selesai"} ${setResult.teamSets}-${setResult.opponentSets}</p>`
+          : '<div class="note-copy">Hasil per set belum diisi.</div>';
+        const evaluations = Object.entries(match.evaluations || {}).map(([playerId, note]) => {
+          const player = playerById(playerId);
+          return player && note ? `<div class="note-item"><div class="note-title">${esc(player.name)}</div><div class="note-copy">${esc(note)}</div></div>` : "";
+        }).join("");
+        showModal(`${esc(match.name)} · Pratinjau`, `<div class="note-item"><div class="note-title">${esc(matchTeamName(match))} · Lawan / turnamen</div><div class="note-copy">${esc(match.opponent || "Belum diisi")} · ${formatDate(match.date)}</div></div>
+          <div class="grid metrics" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr));margin:12px 0">${metric("Ace", totals.ace, "Seluruh roster", "↗")}${metric("Poin serangan", totals.attack, "Seluruh roster", "✓")}${metric("Poin receive", totals.receive, "Seluruh roster", "◎")}${metric("Poin blok", totals.block, "Seluruh roster", "▣")}</div>
+          <div class="note-item"><div class="note-title">Roster (${roster.length})</div><div class="note-copy">${roster.map(player => esc(player.name)).join(", ") || "Belum ada pemain."}</div></div>
+          <div class="note-item"><div class="note-title">Hasil per set</div>${setRows}</div>
+          <div class="note-item"><div class="note-title">Catatan / Evaluasi Umum</div><div class="note-copy">${esc(match.notes || "Belum diisi.")}</div></div>
+          <div class="note-item"><div class="note-title">Evaluasi Individu</div>${evaluations || '<div class="note-copy">Belum ada evaluasi individu.</div>'}</div>
+          <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button type="button" class="button secondary" data-preview-edit="${match.id}">Edit</button><button type="button" class="button" data-preview-live="${match.id}">Catat live</button></div>`);
+        $("#modal-root [data-preview-edit]").addEventListener("click", () => editMatchModal(match.id));
+        $("#modal-root [data-preview-live]").addEventListener("click", () => {
+          selectedMatchId = match.id;
+          currentPage = "matches";
+          render();
         });
       }
       function addStatModal() {
         const match = data.matches.find(m => Number(m.id) === Number(selectedMatchId)); if (!match) return;
-        showModal("Input statistik aksi", `<form><div class="form-grid"><div class="field full"><label>Pemain</label><select name="playerId">${data.players.map(p => `<option value="${p.id}">${esc(p.name)} · ${esc(p.position)}</option>`).join("")}</select></div><div class="field"><label>Teknik</label><select name="skill">${["Attack", "Block", "Serve", "Receive", "Dig", "Set"].map(s => `<option>${s}</option>`).join("")}</select></div><div class="field"><label>Aksi sukses</label><input name="success" type="number" min="0" max="999" value="0" required></div><div class="field"><label>Error</label><input name="errors" type="number" min="0" max="999" value="0" required></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan statistik</button></div></form>`, fd => {
+        const rosterIds = Array.isArray(match.playerIds) ? match.playerIds.map(Number) : data.players.map(p => Number(p.id));
+        const players = data.players.filter(player => rosterIds.includes(Number(player.id)));
+        showModal("Input statistik aksi", `<form><div class="form-grid"><div class="field full"><label>Pemain</label><select name="playerId">${players.map(p => `<option value="${p.id}">${esc(p.name)} · ${esc(p.position)}</option>`).join("")}</select></div>        <div class="field"><label>Teknik</label><select name="skill">${["Ace", "Attack", "Block", "Serve", "Receive", "Dig", "Set"].map(s => `<option>${s}</option>`).join("")}</select></div><div class="field"><label>Aksi sukses</label><input name="success" type="number" min="0" max="999" value="0" required></div><div class="field"><label>Error</label><input name="errors" type="number" min="0" max="999" value="0" required></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan statistik</button></div></form>`, fd => {
           match.stats.push({ playerId: Number(fd.get("playerId")), skill: fd.get("skill"), success: Number(fd.get("success")), errors: Number(fd.get("errors")) });
           toast("Statistik aksi tersimpan.");
         });
@@ -1217,15 +1527,15 @@
         render();
         toast(`${added} pemain diimpor${skipped ? `, ${skipped} baris dilewati` : ""}.`);
       }
-      async function deleteSelectedPlayers() {
-        const selected = Array.from(selectedPlayerIds);
+      async function deletePlayers(playerIds, confirmation) {
+        const selected = Array.from(new Set(playerIds.map(Number))).filter(id => playerById(id));
         if (!selected.length) return;
         const linked = playerAccounts.filter(account => selected.includes(Number(account.playerId)));
         if (linked.length) {
           toast("Pemain terhubung ke akun login. Hapus akun tersebut terlebih dahulu melalui Pengaturan akses.");
           return;
         }
-        if (!window.confirm(`Hapus ${selected.length} pemain beserta catatan terkait?`)) return;
+        if (!window.confirm(confirmation)) return;
         const previousData = JSON.stringify(data);
         const removed = new Set(selected);
         data.players = data.players.filter(player => !removed.has(Number(player.id)));
@@ -1247,8 +1557,15 @@
           render();
           return;
         }
+        selectedPlayerId = null;
+        currentPage = "players";
         render();
-        toast(`${selected.length} pemain dan catatan terkait dihapus.`);
+        toast(selected.length === 1 ? "Pemain dan catatan terkait dihapus." : `${selected.length} pemain dan catatan terkait dihapus.`);
+      }
+      async function deleteSelectedPlayers() {
+        const selected = Array.from(selectedPlayerIds);
+        if (!selected.length) return;
+        await deletePlayers(selected, `Hapus ${selected.length} pemain beserta catatan terkait?`);
       }
       function exportReport(attendanceOnly) {
         const report = reportData(attendanceOnly);
@@ -1313,7 +1630,6 @@
       }
       function applyServerState(state) {
         const hasBottomConfig = Boolean(state && state.bottomNav);
-        const needsTeamMenuMigration = !state || Number(state.menuConfigVersion || 0) < 1;
         const storedAdminMenus = state && state.menuVisibility && state.menuVisibility.admin;
         const needsAdminSettingsMigration = !Array.isArray(storedAdminMenus) || !storedAdminMenus.includes("settings");
         data = Object.assign(JSON.parse(JSON.stringify(defaultData)), state || {});
@@ -1323,24 +1639,49 @@
         data.bottomHighlights = Object.assign({}, defaultData.bottomHighlights, data.bottomHighlights || {});
         data.targets = data.targets || {};
         data.teams = Array.isArray(data.teams) ? data.teams : [];
+        data.sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        data.events = Array.isArray(data.events) ? data.events : [];
+        data.matches = Array.isArray(data.matches) ? data.matches : [];
         data.branding = Object.assign({ logo: "", favicon: "" }, applicationBranding, data.branding || {});
         data.menuConfigVersion = 1;
         if (!data.menuVisibility.admin.includes("settings")) data.menuVisibility.admin.push("settings");
-        if (needsTeamMenuMigration) {
-          ["admin", "coach"].forEach(role => {
-            if (!data.menuVisibility[role].includes("teams")) data.menuVisibility[role].push("teams");
-          });
-        }
         if (!hasBottomConfig) {
           ["admin", "coach"].forEach(role => {
             if (!data.menuVisibility[role].includes("targets")) data.menuVisibility[role].push("targets");
           });
         }
+        let needsMenuMigration = false;
+        ["admin", "coach"].forEach(role => {
+          if (!data.menuVisibility[role].includes("teams")) {
+            data.menuVisibility[role].push("teams");
+            needsMenuMigration = true;
+          }
+        });
+        const validPageIds = new Set(pages.map(page => page.id));
+        Object.keys(roles).forEach(role => {
+          const menus = Array.isArray(data.menuVisibility[role]) ? data.menuVisibility[role] : [];
+          const cleanMenus = menus.filter(id => validPageIds.has(id));
+          if (JSON.stringify(cleanMenus) !== JSON.stringify(menus)) needsMenuMigration = true;
+          data.menuVisibility[role] = cleanMenus;
+          const bottom = Array.isArray(data.bottomNav[role]) ? data.bottomNav[role] : [];
+          const cleanBottom = bottom.filter(id => cleanMenus.includes(id)).slice(0, 5);
+          if (JSON.stringify(cleanBottom) !== JSON.stringify(bottom)) needsMenuMigration = true;
+          data.bottomNav[role] = cleanBottom;
+          if (!cleanMenus.includes(data.highlights[role])) {
+            data.highlights[role] = cleanMenus[0] || "";
+            needsMenuMigration = true;
+          }
+          if (!cleanBottom.includes(data.bottomHighlights[role])) {
+            data.bottomHighlights[role] = cleanBottom[0] || "";
+            needsMenuMigration = true;
+          }
+        });
+        const needsCalendarMigration = migrateCalendarActivities();
         data.role = signedInUser.role;
         settingsRoleKey = signedInUser.role;
         selectedMatchId = data.matches[0] ? data.matches[0].id : null;
         selectedTargetPlayerId = signedInUser.role === "player" ? signedInUser.playerId : (data.players[0] ? data.players[0].id : null);
-        return needsTeamMenuMigration || needsAdminSettingsMigration;
+        return needsMenuMigration || needsAdminSettingsMigration || needsCalendarMigration;
       }
       async function saveBackupSchedule() {
         try {
@@ -1435,10 +1776,10 @@
           switch (el.dataset.action) {
             case "add-player": addPlayerModal(); break;
             case "add-team": teamModal(); break;
-            case "new-session": newSessionModal(); break;
+            case "new-session": newSessionModal(el.dataset.calendarDate); break;
             case "add-event": addEventModal(); break;
             case "add-training-activity": addEventModal("Latihan tim"); break;
-            case "add-match": addMatchModal(); break;
+            case "add-match": addMatchModal(el.dataset.calendarDate); break;
             case "add-stat": addStatModal(); break;
             case "add-user": addUserModal(); break;
             case "player-template": downloadPlayerTemplate(); break;
@@ -1447,10 +1788,36 @@
             case "save-backup-settings": await saveBackupSchedule(); break;
             case "save-branding": await saveBranding(); break;
             case "save-live-stats":
+              {
+                const match = data.matches.find(item => Number(item.id) === Number(selectedMatchId));
+                if (!match) break;
+                const rows = Array.from($("#content").querySelectorAll("[data-match-set]"));
+                const setCount = rows.reduce((maximum, input) => Math.max(maximum, Number(input.dataset.matchSet) + 1), 0);
+                const sets = [];
+                let reachedEmptySet = false;
+                let invalidScores = false;
+                for (let index = 0; index < setCount; index += 1) {
+                  const teamInput = rows.find(input => Number(input.dataset.matchSet) === index && input.dataset.setSide === "teamPoints");
+                  const opponentInput = rows.find(input => Number(input.dataset.matchSet) === index && input.dataset.setSide === "opponentPoints");
+                  const teamScore = teamInput ? teamInput.value.trim() : "";
+                  const opponentScore = opponentInput ? opponentInput.value.trim() : "";
+                  if (!teamScore && !opponentScore) { reachedEmptySet = true; continue; }
+                  if (!teamScore || !opponentScore) { toast(`Lengkapi skor kedua tim pada Set ${index + 1}.`); invalidScores = true; break; }
+                  if (reachedEmptySet) { toast("Isi skor set secara berurutan dari Set 1."); invalidScores = true; break; }
+                  const teamPoints = Number(teamScore), opponentPoints = Number(opponentScore);
+                  if (!Number.isInteger(teamPoints) || !Number.isInteger(opponentPoints) || teamPoints < 0 || opponentPoints < 0 || teamPoints > 99 || opponentPoints > 99) {
+                    toast("Skor set harus berupa bilangan bulat antara 0 dan 99."); invalidScores = true; break;
+                  }
+                  if (teamPoints === opponentPoints) { toast(`Skor Set ${index + 1} tidak boleh imbang.`); invalidScores = true; break; }
+                  sets.push({ teamPoints, opponentPoints });
+                }
+                if (invalidScores) break;
+                match.sets = sets;
+              }
               if (matchStatsDirty && await persist()) {
                 matchStatsDirty = false;
                 render();
-                toast("Statistik pertandingan berhasil disimpan.");
+                toast("Pertandingan berhasil disimpan.");
               }
               break;
             case "backup-now": await sendBackupNow(); break;
@@ -1486,6 +1853,12 @@
         $("#content").querySelectorAll("[data-session-review]").forEach(el => el.addEventListener("click", () => reviewSessionModal(el.dataset.sessionReview)));
         $("#content").querySelectorAll("[data-session-edit]").forEach(el => el.addEventListener("click", () => editSessionModal(el.dataset.sessionEdit)));
         $("#content").querySelectorAll("[data-edit-player]").forEach(el => el.addEventListener("click", () => editPlayerModal(el.dataset.editPlayer)));
+        $("#content").querySelectorAll("[data-player-stats]").forEach(el => el.addEventListener("click", () => openPlayerStats(el.dataset.playerStats)));
+        $("#content").querySelectorAll("[data-open-anthropometry]").forEach(el => el.addEventListener("click", () => anthropometryModal(el.dataset.openAnthropometry)));
+        $("#content").querySelectorAll("[data-delete-player]").forEach(el => el.addEventListener("click", async () => {
+          const player = playerById(el.dataset.deletePlayer);
+          if (player) await deletePlayers([player.id], `Hapus pemain ${player.name} beserta riwayat kehadiran, evaluasi, dan statistiknya?`);
+        }));
         $("#content").querySelectorAll("[data-edit-team]").forEach(el => el.addEventListener("click", () => teamModal(el.dataset.editTeam)));
         $("#content").querySelectorAll("[data-delete-team]").forEach(el => el.addEventListener("click", async () => {
           const team = data.teams.find(item => Number(item.id) === Number(el.dataset.deleteTeam));
@@ -1496,7 +1869,7 @@
         $("#content").querySelectorAll("[data-delete-event]").forEach(el => el.addEventListener("click", () => { data.events = data.events.filter(e => Number(e.id) !== Number(el.dataset.deleteEvent)); persist(); render(); toast("Agenda dihapus."); }));
         $("#content").querySelectorAll("[data-delete-session]").forEach(el => el.addEventListener("click", async () => {
           const session = data.sessions.find(item => Number(item.id) === Number(el.dataset.deleteSession));
-          if (!session) return;
+          if (!session || !window.confirm(`Hapus sesi "${session.title}" beserta catatan kehadiran dan evaluasinya?`)) return;
           const index = data.sessions.indexOf(session);
           data.sessions.splice(index, 1);
           if (await persist()) { render(); toast("Sesi latihan dihapus."); }
@@ -1536,10 +1909,60 @@
           matchStatsDirty = true;
           render();
         }));
-        $("#content").querySelectorAll("[data-edit-match]").forEach(el => el.addEventListener("click", () => {
-          selectedMatchId = Number(el.dataset.editMatch);
+        $("#content").querySelectorAll("[data-match-set]").forEach(input => input.addEventListener("input", () => {
+          const match = data.matches.find(item => Number(item.id) === Number(selectedMatchId));
+          if (!match) return;
+          const index = Number(input.dataset.matchSet);
+          match.sets = Array.isArray(match.sets) ? match.sets.slice() : [];
+          while (match.sets.length <= index) match.sets.push({ teamPoints: "", opponentPoints: "" });
+          match.sets[index] = Object.assign({ teamPoints: "", opponentPoints: "" }, match.sets[index], {
+            [input.dataset.setSide]: input.value
+          });
+          matchStatsDirty = true;
+          const saveButton = $('#content [data-action="save-live-stats"]');
+          if (saveButton) saveButton.disabled = false;
+        }));
+        $("#content").querySelectorAll("[data-preview-match]").forEach(el => el.addEventListener("click", () => previewMatchModal(el.dataset.previewMatch)));
+        $("#content").querySelectorAll("[data-edit-match]").forEach(el => el.addEventListener("click", () => editMatchModal(el.dataset.editMatch)));
+        $("#content").querySelectorAll("[data-open-live-match]").forEach(el => el.addEventListener("click", () => {
+          selectedMatchId = Number(el.dataset.openLiveMatch);
           currentPage = "matches";
           render();
+        }));
+        $("#content").querySelectorAll("[data-delete-match]").forEach(el => el.addEventListener("click", async () => {
+          const match = data.matches.find(item => Number(item.id) === Number(el.dataset.deleteMatch));
+          if (!match || !window.confirm(`Hapus pertandingan "${match.name}" beserta statistik dan evaluasinya?`)) return;
+          const index = data.matches.indexOf(match);
+          const previousSelectedMatchId = selectedMatchId;
+          data.matches.splice(index, 1);
+          if (Number(selectedMatchId) === Number(match.id)) selectedMatchId = data.matches.length ? data.matches[0].id : null;
+          if (await persist()) {
+            matchStatsDirty = false;
+            render();
+            toast("Pertandingan dihapus.");
+          } else {
+            data.matches.splice(index, 0, match);
+            selectedMatchId = previousSelectedMatchId;
+            render();
+          }
+        }));
+        const generalNotes = $("#match-general-notes");
+        if (generalNotes) generalNotes.addEventListener("input", () => {
+          const match = data.matches.find(item => Number(item.id) === Number(selectedMatchId));
+          if (!match) return;
+          match.notes = generalNotes.value;
+          matchStatsDirty = true;
+          const saveButton = $('#content [data-action="save-live-stats"]');
+          if (saveButton) saveButton.disabled = false;
+        });
+        $("#content").querySelectorAll("[data-match-evaluation]").forEach(input => input.addEventListener("input", () => {
+          const match = data.matches.find(item => Number(item.id) === Number(selectedMatchId));
+          if (!match) return;
+          match.evaluations = match.evaluations || {};
+          match.evaluations[input.dataset.matchEvaluation] = input.value;
+          matchStatsDirty = true;
+          const saveButton = $('#content [data-action="save-live-stats"]');
+          if (saveButton) saveButton.disabled = false;
         }));
         const matchSelect = $("#match-select");
         if (matchSelect) matchSelect.addEventListener("change", () => { selectedMatchId = Number(matchSelect.value); render(); });
@@ -1691,8 +2114,8 @@
           }
           const stored = await api("/api/state");
           if (stored.data) {
-            const needsTeamMenuMigration = applyServerState(stored.data);
-            if (needsTeamMenuMigration && signedInUser.role === "admin") await persist();
+            const needsAppMigration = applyServerState(stored.data);
+            if (needsAppMigration && signedInUser.role === "admin") await persist();
           } else {
             if (signedInUser.role !== "admin") {
               throw new Error("Administrator harus login terlebih dahulu untuk menyiapkan data aplikasi.");
@@ -1713,7 +2136,7 @@
             await api("/api/state/initialize", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ data: initialData })
+              body: JSON.stringify({ data })
             });
             try { localStorage.setItem(LEGACY_IMPORTED_KEY, "1"); }
             catch (error) { console.error("Penanda migrasi browser tidak dapat disimpan.", error); }

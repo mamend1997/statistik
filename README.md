@@ -27,6 +27,8 @@ Admin dapat membuat akun pemain dari Pengaturan akses atau dari bagian **Akun lo
 
 Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua untuk menghapus pemain beserta catatan terkait. Akun pemain yang masih terhubung harus dihapus dahulu dari daftar akun.
 
+Tombol **Statistik pemain** membuka detail kehadiran dan statistik teknik per pertandingan. **Antropometri** menampilkan riwayat pengukuran dan formulir untuk menambahkan pembaruan manual. Profil pemain dapat diedit dari tombol **Edit profil**; penghapusan dari halaman detail memerlukan konfirmasi dan ikut menghapus catatan pemain yang terkait.
+
 ## Backup, restore, dan Telegram
 
 - Halaman **Pengaturan akses** menyediakan unduhan backup JSON dan pemulihan dari backup JSON.
@@ -35,7 +37,9 @@ Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua unt
 - Setelah kredensial tersedia, admin dapat mengaktifkan backup harian dan memilih waktu. Zona waktu default adalah `Asia/Jakarta`.
 - **Kirim backup sekarang** mengirim berkas melalui bot Telegram. Bot perlu dapat mengirim pesan ke chat tujuan.
 
-Menu Kehadiran menampilkan daftar sesi dengan status absensi, serta aksi **Tinjau** dan **Edit**. **Tambah Sesi** membuat sesi berstatus belum diisi; pada Edit, status pemain default ke Hadir dan dapat difilter berdasarkan nama. Catatan evaluasi individu hanya tersedia untuk pemain berstatus Hadir. Absensi dapat disimpan terpisah, lalu **Simpan Sesi** menyimpan absensi dan seluruh evaluasi. Menu Kalender menampilkan grid bulanan dan catatan latihan pribadi/tim, les, dan pertandingan dengan tanggal, waktu, catatan, serta tempat opsional. Menu Latihan mengelola kegiatan tersebut dan menyediakan daftar sesi yang sama. Menu Tim memungkinkan admin dan pelatih membuat beberapa tim, mengunggah logo PNG/JPG/WebP hingga 200 KB, dan menempatkan pemain pada lebih dari satu tim. Menu Statistik merangkum kegiatan dan sesi latihan serta rekap laga, dan menyediakan roster serta tombol sukses/gagal live untuk blok, serangan, servis, dan receive. Target performa dapat diatur per pemain untuk minggu atau bulan berjalan.
+Menu **Latihan** menampilkan daftar sesi beserta status absensi dan aksi **Pratinjau**, **Edit**, serta **Hapus** dengan konfirmasi. **Tambah Sesi** membuka pengisian absensi; evaluasi individu hanya tersedia untuk pemain berstatus Hadir. Kalender menampilkan grid bulanan dan seluruh kegiatan, serta menyediakan **Tambah sesi** dan **Tambah pertandingan** pada tanggal yang dipilih. Kegiatan latihan terjadwal menjadi sesi latihan, sedangkan pertandingan, sparring, dan turnamen terjadwal masuk ke daftar pertandingan. Menu **Tim** digunakan untuk mengelompokkan pemain. Saat membuat atau mengedit pertandingan, pilih tim lalu roster pemain yang hadir dan bertanding. Menu **Pertandingan** menampilkan persentase menang, total ace, poin serangan, receive, dan blok serta daftar laga dengan aksi **Pratinjau**, **Edit**, **Catat live**, dan **Hapus**. Catat live dibuka dari daftar pertandingan untuk mengisi statistik pemain dan skor hingga lima set, lalu menyimpan evaluasi umum dan individu.
+
+**Target performa** mengambil capaian langsung dari statistik pertandingan: blok berhasil, serangan berhasil, servis gagal, dan receive gagal. Target awal mingguan disesuaikan dengan posisi: Libero (0, 0, 1, 2), Setter/Toser (2, 4, 2, 2), Outside Hitter (3, 8, 2, 3), Opposite (3, 8, 2, 2), dan Middle Blocker (5, 5, 2, 2), berurutan untuk keempat metrik tersebut. Target bulanan awal adalah empat kali nilai mingguan; pelatih dapat mengubahnya kapan saja. Target keberhasilan adalah jumlah minimal, sedangkan jumlah kegagalan adalah batas maksimal.
 
 Admin juga dapat memilih maksimal lima item navigasi bawah serta highlight-nya untuk setiap role.
 

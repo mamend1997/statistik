@@ -89,12 +89,6 @@
     .card-title { font-size: 14px; font-weight: 750; margin: 0; }
     .card-sub { color: var(--muted); font-size: 11px; margin: 2px 0 0; }
     .select-mini { border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface); padding: 6px 9px; font-size: 11px; }
-    .chart-wrap { padding: 4px 16px 13px; height: 208px; }
-    .chart-wrap svg { width: 100%; height: 100%; overflow: visible; }
-    .chart-grid { stroke: var(--line); stroke-width: 1; }
-    .chart-label { fill: var(--muted); font-size: 10px; }
-    .chart-line { fill: none; stroke: var(--blue); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-    .chart-area { fill: url(#chartFill); }
     .event-list, .recommend-list { padding: 4px 18px 17px; }
     .event-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
     .event-row:last-child { border-bottom: 0; }
@@ -168,6 +162,10 @@
     .privacy-note { font-size: 10px; color: var(--muted); line-height: 1.6; margin-top: 15px; }
     .toolbar-actions { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
     .player-select { width: 16px; height: 16px; accent-color: var(--blue); }
+    .player-detail-actions { justify-content: flex-start; margin: 0 0 16px; }
+    .player-history-card { margin-bottom: 16px; overflow: hidden; }
+    .player-match-stats { min-width: 1000px; }
+    .anthropometry-table table { min-width: 650px; }
     .live-roster { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 14px; }
     .live-player { padding: 14px; min-width: 0; }
     .live-skills { display: grid; gap: 8px; margin-top: 13px; }
@@ -177,8 +175,17 @@
     .live-skill span { color: var(--muted); font-size: 10px; }
     .live-success { background: var(--green); }
     .live-skill .button { width: 30px; padding: 6px 0; }
-    .manual-stats { border-top: 1px solid var(--line); }
-    .manual-stats summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 13px 18px; font-weight: 700; }
+    .match-set-section { margin: 0 18px 18px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+    .match-set-section .card-title { margin: 0 0 12px; }
+    .match-set-head, .match-set-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) 12px minmax(0, 1fr); align-items: center; gap: 8px; }
+    .match-set-head { color: var(--muted); font-size: 10px; font-weight: 700; padding: 0 0 7px; }
+    .match-set-row { padding: 7px 0; border-top: 1px solid var(--line); }
+    .match-set-row strong { font-size: 11px; }
+    .match-set-row input { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 12px; }
+    .match-set-row > span { color: var(--muted); text-align: center; }
+    .match-set-section > .card-sub { margin: 10px 0 0; }
+    .match-score-preview { margin-top: 8px; }
+    .match-score-preview table { min-width: 0; }
     .roster-pick { max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 4px 11px; }
     .roster-option { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 9px; padding: 8px 0; color: var(--ink); font-size: 11px; border-bottom: 1px solid var(--line); }
     .roster-option:last-child { border-bottom: 0; }
