@@ -3175,6 +3175,46 @@
       }
       $("#theme-toggle").addEventListener("click", () => { data.theme = data.theme === "dark" ? "light" : "dark"; persist(); render(); });
       $("#menu-toggle").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
+      const sidebar = $("#sidebar");
+      const sidebarToggle = $("#sidebar-toggle");
+      const desktopSidebar = window.matchMedia("(min-width: 761px)");
+      const hoverSidebar = window.matchMedia("(min-width: 761px) and (hover: hover) and (pointer: fine)");
+      function updateSidebarToggle() {
+        const app = $("#app");
+        const collapsed = app.classList.contains("sidebar-collapsed");
+        sidebarToggle.textContent = collapsed ? "›" : "‹";
+        sidebarToggle.setAttribute("aria-expanded", String(!collapsed || app.classList.contains("sidebar-peek")));
+        sidebarToggle.setAttribute("aria-label", collapsed ? "Tampilkan sidebar tetap" : "Minimalkan sidebar");
+        sidebarToggle.title = collapsed ? "Tampilkan sidebar tetap" : "Minimalkan sidebar";
+      }
+      sidebarToggle.addEventListener("click", () => {
+        if (!desktopSidebar.matches) return;
+        $("#app").classList.toggle("sidebar-collapsed");
+        $("#app").classList.remove("sidebar-peek");
+        updateSidebarToggle();
+      });
+      sidebar.addEventListener("pointerenter", () => {
+        if (hoverSidebar.matches && $("#app").classList.contains("sidebar-collapsed")) {
+          $("#app").classList.add("sidebar-peek");
+          updateSidebarToggle();
+        }
+      });
+      sidebar.addEventListener("pointerleave", () => {
+        $("#app").classList.remove("sidebar-peek");
+        updateSidebarToggle();
+      });
+      sidebar.addEventListener("focusin", () => {
+        if (desktopSidebar.matches && $("#app").classList.contains("sidebar-collapsed")) {
+          $("#app").classList.add("sidebar-peek");
+          updateSidebarToggle();
+        }
+      });
+      sidebar.addEventListener("focusout", event => {
+        if (!sidebar.contains(event.relatedTarget)) {
+          $("#app").classList.remove("sidebar-peek");
+          updateSidebarToggle();
+        }
+      });
       document.addEventListener("keydown", event => { if (event.key === "Escape") $("#modal-root").innerHTML = ""; });
       window.addEventListener("beforeunload", event => {
         if (!strategyDirty) return;
