@@ -182,6 +182,9 @@
       }
       const canEditMenu = menu => ["edit", "full"].includes(accessLevel(menu));
       const canDeleteMenu = menu => accessLevel(menu) === "full";
+      function calendarMenuForSource(source) {
+        return source === "session" ? "attendance" : source === "match" ? "training" : "schedule";
+      }
       function applyPageActionPermissions(menu) {
         const editSelectors = [
           '#content button[data-action^="add-"]',
@@ -193,7 +196,6 @@
           '#content button[data-edit-team]',
           '#content button[data-session-edit]',
           '#content button[data-edit-match]',
-          '#content button[data-calendar-edit-source]',
           '#content button[data-calendar-event-edit]',
           '#content button[data-preview-edit]',
           '#content button[data-update-anthropometry]',
@@ -217,6 +219,12 @@
             element.readOnly = true;
           });
         }
+        document.querySelectorAll("#content button[data-calendar-edit-source]").forEach(button => {
+          button.hidden = !canEditMenu(calendarMenuForSource(button.dataset.calendarEditSource));
+        });
+        document.querySelectorAll("#content button[data-calendar-delete-source]").forEach(button => {
+          button.hidden = !canDeleteMenu(calendarMenuForSource(button.dataset.calendarDeleteSource));
+        });
         const deleteSelectors = [
           '#content button[data-action^="delete-"]',
           '#content button[data-delete-player]',
@@ -557,12 +565,13 @@
         const marker = colors.length === 1 ? palette[colors[0]].color : `linear-gradient(135deg, ${gradient("color")})`;
         return `style="--calendar-day-background:${background};--calendar-day-marker:${marker}"`;
       }
-      function calendarActivityActions(event, canEdit) {
+      function calendarActivityActions(event) {
         const id = String(event.id).replace(/^(session|match)-/, "");
+        const menu = calendarMenuForSource(event.source);
         return `<div class="toolbar-actions calendar-event-actions">
           <button class="button secondary small" data-calendar-detail-source="${esc(event.source)}" data-calendar-detail-id="${esc(id)}">Detail</button>
-          ${canEdit ? `<button class="button secondary small" data-calendar-edit-source="${esc(event.source)}" data-calendar-edit-id="${esc(id)}">Edit</button>
-            <button class="button orange small" data-delete-${esc(event.source)}="${esc(id)}">Hapus</button>` : ""}
+          ${canEditMenu(menu) ? `<button class="button secondary small" data-calendar-edit-source="${esc(event.source)}" data-calendar-edit-id="${esc(id)}">Edit</button>` : ""}
+          ${canDeleteMenu(menu) ? `<button class="button orange small" data-calendar-delete-source="${esc(event.source)}" data-calendar-delete-id="${esc(id)}">Hapus</button>` : ""}
         </div>`;
       }
       function eventRow(event) {
@@ -875,12 +884,12 @@
             ${calendarView === "year"
               ? `<div class="calendar-year-grid">${Array.from({ length: 12 }, (_, month) => renderMonthGrid(new Date(calendarMonth.getFullYear(), month, 1), true)).join("")}</div>`
               : renderMonthGrid(calendarMonth, false)}
-            ${selectedDayEvents.length ? `<section class="calendar-selected-events"><div class="card-head"><div><h2 class="card-title">Kegiatan · ${formatDate(selectedCalendarDate)}</h2><p class="card-sub">${selectedDayEvents.length} kegiatan pada tanggal ini</p></div></div><div class="event-list">${selectedDayEvents.map(event => `<div class="event-row calendar-selected-event-row"><div class="calendar-event-color ${calendarDotClass(event.type)}"></div><div class="calendar-event-copy"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${esc(event.type)} · ${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}</div></div>${calendarActivityActions(event, canEdit)}</div>`).join("")}</div></section>` : ""}
+            ${selectedDayEvents.length ? `<section class="calendar-selected-events"><div class="card-head"><div><h2 class="card-title">Kegiatan · ${formatDate(selectedCalendarDate)}</h2><p class="card-sub">${selectedDayEvents.length} kegiatan pada tanggal ini</p></div></div><div class="event-list">${selectedDayEvents.map(event => `<div class="event-row calendar-selected-event-row"><div class="calendar-event-color ${calendarDotClass(event.type)}"></div><div class="calendar-event-copy"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${esc(event.type)} · ${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}</div></div>${calendarActivityActions(event)}</div>`).join("")}</div></section>` : ""}
             <div class="calendar-legend"><span><i class="calendar-dot"></i> Latihan</span><span><i class="calendar-dot blue"></i> Pertandingan / sparring</span><span><i class="calendar-dot orange"></i> Turnamen / kegiatan lain</span></div>
           </section>
           <section class="card wide-card"><div class="toolbar"><div><strong style="font-size:13px">Seluruh kegiatan</strong><span class="card-sub" style="margin-left:8px">${allActivities.length} kegiatan</span></div>
           ${canEdit ? `<div class="toolbar-actions"><span class="tag blue">${selectedCalendarDate ? `Tanggal dipilih: ${formatDate(selectedCalendarDate)}` : `Tanggal: ${formatDate(actionDate)}`}</span><button class="button secondary small" data-action="new-session" data-calendar-date="${esc(actionDate)}">＋ Tambah sesi</button><button class="button small" data-action="add-match" data-calendar-date="${esc(actionDate)}">＋ Tambah pertandingan</button></div>` : ""}
-          </div><div class="event-list">${allActivities.length ? allActivities.map(event => `<div class="event-row calendar-list-event-row"><div class="date-tile"><strong>${dateObj(event.date).getDate()}</strong><span>${shortMonth(event.date)}</span></div><div class="calendar-event-copy"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(event.type)}">${esc(event.type)}</span>${calendarActivityActions(event, canEdit)}</div>`).join("") : '<div class="empty">Belum ada kegiatan.</div>'}</div></section>`;
+          </div><div class="event-list">${allActivities.length ? allActivities.map(event => `<div class="event-row calendar-list-event-row"><div class="date-tile"><strong>${dateObj(event.date).getDate()}</strong><span>${shortMonth(event.date)}</span></div><div class="calendar-event-copy"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(event.type)}">${esc(event.type)}</span>${calendarActivityActions(event)}</div>`).join("") : '<div class="empty">Belum ada kegiatan.</div>'}</div></section>`;
       }
       function teamsPage() {
         const teams = (data.teams || []).slice().sort((a, b) => a.name.localeCompare(b.name));
@@ -1864,6 +1873,38 @@
           <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button type="button" class="button" data-calendar-event-edit="${event.id}">Edit</button></div>`);
         $("#modal-root [data-calendar-event-edit]").addEventListener("click", () => addEventModal(null, event.id));
       }
+      async function deleteCalendarActivity(source, activityId) {
+        const collection = source === "event" ? data.events
+          : source === "session" ? data.sessions
+            : source === "match" ? data.matches
+              : null;
+        const menu = calendarMenuForSource(source);
+        if (!collection || !canDeleteMenu(menu)) return;
+        const item = collection.find(entry => Number(entry.id) === Number(activityId));
+        if (!item) return;
+        const title = source === "match" ? item.name : item.title;
+        const message = source === "session"
+          ? `Hapus sesi "${title}" beserta catatan kehadiran dan evaluasinya?`
+          : source === "match"
+            ? `Hapus pertandingan "${title}" beserta statistik dan evaluasinya?`
+            : `Hapus kegiatan "${title}"?`;
+        if (!window.confirm(message)) return;
+        const index = collection.indexOf(item);
+        const previousSelectedMatchId = selectedMatchId;
+        collection.splice(index, 1);
+        if (source === "match" && Number(selectedMatchId) === Number(item.id)) {
+          selectedMatchId = data.matches.length ? data.matches[0].id : null;
+        }
+        if (await persist()) {
+          if (source === "match") matchStatsDirty = false;
+          render();
+          toast(source === "session" ? "Sesi latihan dihapus." : source === "match" ? "Pertandingan dihapus." : "Kegiatan dihapus.");
+        } else {
+          collection.splice(index, 0, item);
+          selectedMatchId = previousSelectedMatchId;
+          render();
+        }
+      }
       function addMatchModal(defaultDate, returnToCalendar) {
         showModal("Buat pertandingan dan pilih roster", `<form><div class="form-grid"><div class="field full"><label>Nama pertandingan</label><input name="name" required maxlength="100" placeholder="Uji Coba vs ..."></div><div class="field"><label>Lawan / turnamen</label><input name="opponent" maxlength="100" placeholder="Nama sekolah/tim"></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${esc(defaultDate || todayISO())}" required></div><div class="field full"><label>Tim yang bertanding</label>${matchTeamPickerMarkup("", false)}</div><div class="field full"><label>Pilih pemain yang hadir dan bertanding</label><div class="roster-pick" id="match-roster-picker"></div></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan pertandingan</button></div></form>`, async fd => {
           const name = String(fd.get("name") || "").trim();
@@ -2620,6 +2661,9 @@
           if (el.dataset.calendarEditSource === "event") addEventModal(null, id);
           else if (el.dataset.calendarEditSource === "session") editSessionModal(id);
           else if (el.dataset.calendarEditSource === "match") editMatchModal(id, true);
+        }));
+        $("#content").querySelectorAll("[data-calendar-delete-source]").forEach(el => el.addEventListener("click", async () => {
+          await deleteCalendarActivity(el.dataset.calendarDeleteSource, el.dataset.calendarDeleteId);
         }));
         $("#content").querySelectorAll("[data-calendar-month]").forEach(el => el.addEventListener("click", () => {
           const direction = el.dataset.calendarMonth === "next" ? 1 : -1;
