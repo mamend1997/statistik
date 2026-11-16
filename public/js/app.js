@@ -767,11 +767,14 @@
           ["Hadir", "Izin", "Sakit", "Alpa"].includes((session.attendance || {})[player.id])
         );
       }
+      function sessionMaterialComplete(session) {
+        return Array.isArray(session.drills) && session.drills.some(drill => String(drill).trim());
+      }
       function sessionListMarkup(sessions) {
         if (!sessions.length) return '<div class="empty">Belum ada sesi latihan. Tambahkan sesi untuk mulai mencatat kehadiran.</div>';
         return `<div class="table-wrap"><table><thead><tr><th>Judul sesi</th><th>Tanggal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${sessions.map(session => {
-          const complete = sessionAttendanceComplete(session);
-          return `<tr><td><strong>${esc(session.title)}</strong></td><td>${formatDate(session.date)}</td><td><span class="tag ${complete ? "green" : "red"}">${complete ? "Tersimpan" : "Belum Diisi"}</span></td><td><div class="toolbar-actions"><button class="button secondary small" data-session-review="${session.id}">Pratinjau</button><button class="button secondary small" data-session-edit="${session.id}">Edit</button><button class="button orange small" data-delete-session="${session.id}">Hapus</button></div></td></tr>`;
+          const complete = sessionAttendanceComplete(session) && sessionMaterialComplete(session);
+          return `<tr><td><strong>${esc(session.title)}</strong></td><td>${formatDate(session.date)}</td><td><span class="tag ${complete ? "green" : "red"}">${complete ? "Tersimpan" : "Belum Terisi"}</span></td><td><div class="toolbar-actions"><button class="button secondary small" data-session-review="${session.id}">Pratinjau</button><button class="button secondary small" data-session-edit="${session.id}">Edit</button><button class="button orange small" data-delete-session="${session.id}">Hapus</button></div></td></tr>`;
         }).join("")}</tbody></table></div>`;
       }
       function attendancePage() {
@@ -1490,6 +1493,7 @@
         showModal("Tambah sesi latihan", `<form><div class="form-grid">
           <div class="field full"><label>Nama sesi</label><input name="title" required maxlength="100" placeholder="Contoh: Latihan teknik & taktik"></div>
           <div class="field"><label>Tanggal</label><input name="date" type="date" value="${esc(defaultDate || todayISO())}" required></div>
+          <div class="field full"><label>Materi latihan (pisahkan dengan koma)</label><input name="drills" required maxlength="500" placeholder="Contoh: Drilling passing, spike footwork"></div>
           <div class="field full"><label for="session-participant-mode">Pemain yang dilatih</label><select id="session-participant-mode" name="participantMode">
             <option value="all">Semua pemain</option>
             <option value="team" ${teams.length ? "" : "disabled"}>Pilih tim</option>
@@ -1509,6 +1513,8 @@
           const title = String(fd.get("title") || "").trim();
           const date = String(fd.get("date") || "");
           if (!title || !date) return false;
+          const drills = String(fd.get("drills") || "").split(",").map(value => value.trim()).filter(Boolean);
+          if (!drills.length) throw new Error("Materi latihan wajib diisi.");
           const rosterMode = String(fd.get("participantMode") || "all");
           let teamId = null;
           let playerIds;
@@ -1527,7 +1533,7 @@
             if (!playerIds.length) throw new Error("Tambahkan pemain terlebih dahulu.");
           }
           const session = {
-            id: Date.now(), title, date, drills: [], notes: "", evaluations: {},
+            id: Date.now(), title, date, drills, notes: "", evaluations: {},
             attendance: {}, attendanceSaved: false, rosterMode, teamId, playerIds
           };
           data.sessions.unshift(session);
@@ -1628,7 +1634,7 @@
           <div style="padding:14px 0;text-align:right"><button type="button" class="button secondary" id="save-session-attendance">Simpan Absensi</button></div>
           <div class="form-grid">
             <div class="field full"><label>Catatan progres / evaluasi umum sesi</label><textarea name="notes" maxlength="2000" placeholder="Catatan umum sesi">${esc(session.notes || "")}</textarea></div>
-            <div class="field full"><label>Materi latihan (pisahkan dengan koma)</label><input name="drills" value="${esc((session.drills || []).join(", "))}" placeholder="Drilling passing, spike footwork"></div>
+            <div class="field full"><label>Materi latihan (pisahkan dengan koma)</label><input name="drills" required maxlength="500" value="${esc((session.drills || []).join(", "))}" placeholder="Drilling passing, spike footwork"></div>
             <div class="field full"><strong class="card-title">Catatan evaluasi individu</strong></div>
             ${evaluationFields}
           </div>
@@ -1637,6 +1643,8 @@
           const title = String(fd.get("title") || "").trim();
           const date = String(fd.get("date") || "");
           if (!title || !date) return false;
+          const drills = String(fd.get("drills") || "").split(",").map(value => value.trim()).filter(Boolean);
+          if (!drills.length) throw new Error("Materi latihan wajib diisi.");
           if (!players.length) throw new Error("Tambahkan pemain ke sesi sebelum menyimpan absensi.");
           if (players.some(player => !["Hadir", "Izin", "Sakit", "Alpa"].includes(attendanceDraft[player.id]))) {
             throw new Error("Pilih status absensi untuk setiap pemain.");
@@ -1650,7 +1658,7 @@
           Object.assign(session, {
             title, date, attendance: Object.assign({}, attendanceDraft), attendanceSaved: true,
             notes: String(fd.get("notes") || "").trim(),
-            drills: String(fd.get("drills") || "").split(",").map(value => value.trim()).filter(Boolean),
+            drills,
             evaluations
           });
           if (!await persist()) {
@@ -2021,7 +2029,7 @@
           data.players.push({ id: Date.now() + index, name, position, number, className, gender, birthDate, height, weight, verticalJump, spikeReach, blockReach, history: [record] });
           added++;
         });
-        if (!added) throw new Error("Tidak ada baris valid untuk diimpor. Periksa data dan posisi pemain.");
+        if (!added) throw new Error("Tidak ada baris pemain yang valid. Isi semua kolom wajib dan gunakan posisi serta rentang angka sesuai template.");
         if (!await persist()) return;
         selectedPlayerIds.clear();
         render();

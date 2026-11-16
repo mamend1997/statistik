@@ -1003,9 +1003,37 @@ app.get("/api/players/template", requireUser, requireOperator, requireMenuAction
       { header: "Tanggal Lahir", key: "birthDate", width: 18 }
     ];
     sheet.views = [{ state: "frozen", ySplit: 1 }];
-    sheet.autoFilter = "A1:K1";
+    sheet.autoFilter = "A1:K5001";
     sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF315EE8" } };
+    sheet.dataValidations.add("B2:B5001", {
+      type: "list",
+      formulae: ['"Setter,Outside Hitter,Opposite,Middle Blocker,Libero"'],
+      allowBlank: false
+    });
+    sheet.dataValidations.add("C2:C5001", { type: "whole", operator: "between", formulae: [0, 99], allowBlank: false });
+    sheet.dataValidations.add("E2:E5001", { type: "decimal", operator: "between", formulae: [100, 230], allowBlank: false });
+    sheet.dataValidations.add("F2:F5001", { type: "decimal", operator: "between", formulae: [20, 180], allowBlank: false });
+    sheet.dataValidations.add("G2:H5001", { type: "decimal", operator: "between", formulae: [100, 350], allowBlank: false });
+    sheet.dataValidations.add("I2:I5001", { type: "decimal", operator: "between", formulae: [0, 120], allowBlank: true });
+    sheet.dataValidations.add("J2:J5001", {
+      type: "list",
+      formulae: ['"Perempuan,Laki-laki"'],
+      allowBlank: true
+    });
+    const instructions = workbook.addWorksheet("Petunjuk");
+    instructions.addRows([
+      ["Petunjuk impor pemain"],
+      ["Isi satu pemain per baris pada sheet Data Pemain, mulai dari baris 2. Jangan mengubah nama kolom."],
+      ["Kolom wajib: Nama, Posisi, Nomor Punggung, Kelas, Tinggi, Berat, Spike Reach, dan Block Reach."],
+      ["Posisi harus dipilih dari daftar: Setter, Outside Hitter, Opposite, Middle Blocker, atau Libero."],
+      ["Nomor punggung: 0-99; tinggi: 100-230 cm; berat: 20-180 kg; jangkauan spike/block: 100-350 cm."],
+      ["Vertical Jump (0-120 cm), Jenis Kelamin, dan Tanggal Lahir (YYYY-MM-DD) bersifat opsional."],
+      ["Baris kosong akan dilewati. Lengkapi semua kolom wajib agar baris dapat diimpor."]
+    ]);
+    instructions.getColumn(1).width = 110;
+    instructions.getRow(1).font = { bold: true, size: 14, color: { argb: "FF315EE8" } };
+    instructions.getColumn(1).alignment = { wrapText: true, vertical: "top" };
     const contents = await workbook.xlsx.writeBuffer();
     response.setHeader("Content-Type", excelMimeType);
     response.setHeader("Content-Disposition", 'attachment; filename="template-import-pemain-volleydesk.xlsx"');
@@ -1123,7 +1151,7 @@ app.post(
         added++;
       }
       if (!added) {
-        apiError(response, 400, "Tidak ada baris pemain yang valid untuk diimpor.");
+        apiError(response, 400, "Tidak ada baris pemain yang valid. Isi semua kolom wajib dan gunakan posisi serta rentang angka sesuai sheet Petunjuk.");
         return;
       }
       writeAppState(current.data, request.user.role, false);
