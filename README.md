@@ -23,7 +23,7 @@ Data aplikasi, akun, dan sesi login disimpan server-side di SQLite. Cookie sesi 
 
 Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama. Admin/pelatih dapat mengimpor daftar pemain dari Excel `.xlsx` atau CSV di menu Data pemain; template `.xlsx` dapat diunduh di halaman tersebut. Kolom jenis kelamin dan tanggal lahir (format `YYYY-MM-DD`) bersifat opsional, sehingga template lama tetap kompatibel.
 
-Admin dapat membuat akun pemain dari Pengaturan akses atau dari tombol **Buat login** pada menu Data pemain. Username dapat berupa username sederhana atau email; kata sandi minimal 6 karakter dan disimpan dalam bentuk hash. Akun pemain hanya menerima profil, kehadiran, statistik, agenda, dan target milik pemain tersebut. Pemain tidak dapat mengubah data bersama.
+Admin dapat membuat akun pemain dari Pengaturan akses atau dari bagian **Akun login pemain** pada tombol **Edit** di menu Data pemain. Username dapat berupa username sederhana atau email; kata sandi minimal 6 karakter dan disimpan dalam bentuk hash. Akun pemain hanya menerima profil, kehadiran, statistik, agenda, dan target milik pemain tersebut. Pemain tidak dapat mengubah data bersama.
 
 Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua untuk menghapus pemain beserta catatan terkait. Akun pemain yang masih terhubung harus dihapus dahulu dari daftar akun.
 

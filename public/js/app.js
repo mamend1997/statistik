@@ -2,6 +2,7 @@
       "use strict";
       const STORAGE_KEY = "volleyDeskDataV1";
       const LEGACY_IMPORTED_KEY = "volleyDeskLegacyImportedV1";
+      const LAST_PAGE_KEY = "volleyDeskLastPageV1";
       const MIN_PASSWORD_LENGTH = 6;
       const roles = {
         admin: "Admin / Operator",
@@ -133,6 +134,24 @@
         (p.id !== "settings" || activeRole() === "admin") &&
         (data.menuVisibility[activeRole()] || []).includes(p.id)
       );
+      function restoreLastPage() {
+        if (!signedInUser) return;
+        try {
+          const savedPage = localStorage.getItem(`${LAST_PAGE_KEY}:${signedInUser.id}`);
+          if (visiblePages().some(page => page.id === savedPage)) currentPage = savedPage;
+        } catch (error) {
+          console.error("Halaman terakhir tidak dapat dipulihkan.", error);
+        }
+      }
+      function saveLastPage() {
+        if (!signedInUser) return;
+        try {
+          const key = `${LAST_PAGE_KEY}:${signedInUser.id}`;
+          if (localStorage.getItem(key) !== currentPage) localStorage.setItem(key, currentPage);
+        } catch (error) {
+          console.error("Halaman terakhir tidak dapat disimpan.", error);
+        }
+      }
       function applyBranding(branding) {
         applicationBranding = {
           logo: branding && branding.logo || "",
@@ -256,6 +275,7 @@
       function renderNav() {
         const nav = $("#nav"), bottomNav = $("#bottom-nav"), allowed = visiblePages();
         if (!allowed.some(p => p.id === currentPage)) currentPage = allowed.length ? allowed[0].id : "dashboard";
+        saveLastPage();
         const highlight = data.highlights[activeRole()];
         nav.innerHTML = allowed.length ? allowed.map(p => `<button class="nav-btn ${currentPage === p.id ? "active" : ""}" data-page="${p.id}"><span class="nav-icon">${p.icon}</span><span>${esc(p.label)}</span>${highlight === p.id ? '<span class="nav-pin">★</span>' : ""}</button>`).join("") : '<div class="empty">Belum ada menu yang diizinkan.</div>';
         nav.querySelectorAll("[data-page]").forEach(button => button.addEventListener("click", () => { currentPage = button.dataset.page; $("#sidebar").classList.remove("open"); render(); }));
@@ -353,16 +373,13 @@
           <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Riwayat latihan</h2><p class="card-sub">Kehadiran dan catatan dari pelatih</p></div></div><div class="event-list">${sessions.map(session => `<div class="event-row"><div class="date-tile"><strong>${dateObj(session.date).getDate()}</strong><span>${shortMonth(session.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(session.title)}</div><div class="event-meta">${session.attendance && session.attendance[player.id] ? esc(session.attendance[player.id]) : "Belum dicatat"}${session.evaluations && session.evaluations[player.id] ? ` · ${esc(session.evaluations[player.id])}` : ""}</div></div></div>`).join("") || '<div class="empty">Belum ada sesi latihan.</div>'}</div></section>`;
       }
       function playerRows(players) {
-        return players.map(p => {
-          const account = playerAccounts.find(item => Number(item.playerId) === Number(p.id));
-          return `<tr><td><input class="player-select" type="checkbox" data-select-player="${p.id}" ${selectedPlayerIds.has(Number(p.id)) ? "checked" : ""} aria-label="Pilih ${esc(p.name)}"></td><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.position)}</td><td>${esc(p.className)}</td><td>${esc(p.height)} cm</td><td>${esc(p.weight)} kg</td><td>${esc(p.spikeReach)} / ${esc(p.blockReach)} cm</td><td>${attendanceRate(p.id)}%</td><td><button class="button secondary small" data-edit-player="${p.id}">Edit</button><button class="button small" data-player-account="${p.id}">${account ? "Akun login" : "＋ Buat login"}</button>${account ? `<span class="position">${esc(account.username)}</span>` : ""}</td></tr>`;
-        }).join("");
+        return players.map(p => `<tr><td><input class="player-select" type="checkbox" data-select-player="${p.id}" ${selectedPlayerIds.has(Number(p.id)) ? "checked" : ""} aria-label="Pilih ${esc(p.name)}"></td><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.position)}</td><td>${esc(p.className)}</td><td>${esc(p.height)} cm</td><td>${esc(p.weight)} kg</td><td>${esc(p.spikeReach)} / ${esc(p.blockReach)} cm</td><td>${attendanceRate(p.id)}%</td><td><button class="button secondary small" data-edit-player="${p.id}">Edit</button></td></tr>`).join("");
       }
       function playersPage() {
         const filtered = data.players.filter(p => (p.name + " " + p.position + " " + p.className).toLowerCase().includes(searchTerm.toLowerCase()));
         return `${heading("Biodata pemain", "Kelola profil, posisi, dan perkembangan antropometri setiap atlet.", '<button class="button" data-action="add-player">＋ Tambah pemain</button>')}
           <section class="card"><div class="toolbar player-toolbar"><div><strong style="font-size:13px">Daftar skuad</strong><span class="card-sub" style="margin-left:8px">${data.players.length} pemain</span></div><input class="search" id="player-search" placeholder="Cari nama, posisi, kelas..." value="${esc(searchTerm)}"><div class="toolbar-actions"><button class="button secondary small" data-action="player-template">Unduh template Excel</button><button class="button secondary small" data-action="player-import">Impor Excel / CSV</button><input id="player-import-file" type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden><button class="button orange small" data-action="delete-selected" ${selectedPlayerIds.size ? "" : "disabled"}>Hapus terpilih (${selectedPlayerIds.size})</button></div></div>
-          <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="select-all-players" ${filtered.length && filtered.every(p => selectedPlayerIds.has(Number(p.id))) ? "checked" : ""} aria-label="Pilih semua pemain yang ditampilkan"></th><th>Pemain</th><th>Posisi</th><th>Kelas</th><th>Tinggi</th><th>Berat</th><th>Spike / block</th><th>Kehadiran</th><th>Profil / akun</th></tr></thead><tbody>${filtered.length ? playerRows(filtered) : '<tr><td colspan="9" class="empty">Pemain tidak ditemukan.</td></tr>'}</tbody></table></div></section>
+          <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="select-all-players" ${filtered.length && filtered.every(p => selectedPlayerIds.has(Number(p.id))) ? "checked" : ""} aria-label="Pilih semua pemain yang ditampilkan"></th><th>Pemain</th><th>Posisi</th><th>Kelas</th><th>Tinggi</th><th>Berat</th><th>Spike / block</th><th>Kehadiran</th><th>Aksi</th></tr></thead><tbody>${filtered.length ? playerRows(filtered) : '<tr><td colspan="9" class="empty">Pemain tidak ditemukan.</td></tr>'}</tbody></table></div></section>
           <p class="privacy-note">Template Excel (.xlsx) dan CSV memakai delapan kolom biodata/antropometri wajib. Jenis Kelamin dan Tanggal Lahir (YYYY-MM-DD) tersedia sebagai kolom opsional; template lama tetap didukung.</p>
           <p class="privacy-note">Riwayat pengukuran disimpan saat profil diperbarui. Pertimbangkan usia, tahap pertumbuhan, dan teknik pengukuran yang konsisten saat membandingkan antropometri.</p>`;
       }
@@ -715,33 +732,6 @@
           data.players.push(p); toast("Pemain berhasil ditambahkan.");
         });
       }
-      function playerAccountModal(playerId) {
-        const player = playerById(playerId);
-        if (!player) return;
-        const account = playerAccounts.find(item => Number(item.playerId) === Number(player.id));
-        showModal(account ? "Ubah akun pemain" : "Buat akun login pemain", `<form><div class="form-grid">
-          <div class="field full"><label>Nama pemain</label><input value="${esc(player.name)}" disabled></div>
-          <div class="field full"><label>Username atau email</label><input name="username" type="text" required maxlength="254" autocomplete="username" value="${esc(account ? account.username : "")}" placeholder="contoh: alya12"></div>
-          <div class="field full"><label>Kata sandi sementara (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" required minlength="${MIN_PASSWORD_LENGTH}" maxlength="1024" autocomplete="new-password"></div>
-          </div><p class="privacy-note">Pemain dapat masuk menggunakan username atau email dan kata sandi ini. Sampaikan kata sandi melalui kanal aman; kata sandi tidak ditampilkan kembali.</p>
-          <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan akun</button></div></form>`, async fd => {
-          const username = String(fd.get("username") || "").trim().toLowerCase();
-          const password = String(fd.get("password") || "");
-          if (password.length < MIN_PASSWORD_LENGTH) throw new Error(`Kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter.`);
-          const result = await api(account ? `/api/player-accounts/${player.id}` : "/api/player-accounts", {
-            method: account ? "PUT" : "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ playerId: Number(player.id), username, password })
-          });
-          playerAccounts = playerAccounts.filter(item => Number(item.playerId) !== Number(player.id)).concat(result.account);
-          if (activeRole() === "admin") {
-            const users = await api("/api/admin/users");
-            serverUsers = users.users;
-          }
-          toast(account ? "Akun pemain diperbarui." : "Akun login pemain berhasil dibuat.");
-          return "skip-persist";
-        });
-      }
       function teamModal(teamId) {
         const team = teamId == null ? null : (data.teams || []).find(item => Number(item.id) === Number(teamId));
         if (teamId != null && !team) return;
@@ -802,14 +792,28 @@
           reader.readAsDataURL(file);
         });
       }
-      function playerProfileModal(id) {
+      function editPlayerModal(id) {
         const p = playerById(id); if (!p) return;
+        const account = playerAccounts.find(item => Number(item.playerId) === Number(p.id));
         const history = (p.history || []).slice().sort((a, b) => a.date.localeCompare(b.date));
-        showModal(esc(p.name) + " · Profil atlet", `<div class="grid metrics" style="grid-template-columns:repeat(2,1fr);margin:0 0 15px;gap:9px">
+        showModal("Edit pemain · " + esc(p.name), `<div class="grid metrics" style="grid-template-columns:repeat(2,1fr);margin:0 0 15px;gap:9px">
           ${metric("Tinggi", p.height + " cm", "Pengukuran terbaru", "↕")}${metric("Berat", p.weight + " kg", "Pengukuran terbaru", "⚖")}${metric("Spike reach", p.spikeReach + " cm", "Jangkauan serang", "↗")}${metric("Block reach", p.blockReach + " cm", "Jangkauan blok", "▤")}
           </div><div class="note-item"><div class="note-title">${esc(p.position)} · #${p.number} · ${esc(p.className)}</div><div class="note-copy">${esc(p.gender || "Jenis kelamin belum diisi")} · ${p.birthDate ? `Lahir ${formatDate(p.birthDate)}` : "Tanggal lahir belum diisi"} · Kehadiran ${attendanceRate(p.id)}% · Efisiensi attack ${skillEfficiency(p.id, "Attack") === null ? "belum ada data" : skillEfficiency(p.id, "Attack") + "%"}</div></div>
           <h3 class="card-title" style="margin:15px 0 4px">Riwayat antropometri</h3>${history.map(h => `<div class="switch-row"><span class="note-copy">${formatDate(h.date)}</span><span class="note-title">${h.height} cm · ${h.weight} kg · SR ${h.spikeReach} · BR ${h.blockReach}</span></div>`).join("")}
-          <form id="update-profile-form"><div class="form-grid" style="margin-top:15px"><div class="field"><label>Jenis kelamin (opsional)</label><select name="gender"><option value="" ${!p.gender ? "selected" : ""}>Belum diisi</option><option value="Perempuan" ${p.gender === "Perempuan" ? "selected" : ""}>Perempuan</option><option value="Laki-laki" ${p.gender === "Laki-laki" ? "selected" : ""}>Laki-laki</option></select></div><div class="field"><label>Tanggal lahir (opsional)</label><input name="birthDate" type="date" max="${todayISO()}" value="${esc(p.birthDate || "")}"></div><div class="field"><label>Tinggi (cm)</label><input name="height" type="number" value="${p.height}" min="100" max="230" required></div><div class="field"><label>Berat (kg)</label><input name="weight" type="number" value="${p.weight}" min="20" max="180" required></div><div class="field"><label>Spike reach (cm)</label><input name="spikeReach" type="number" value="${p.spikeReach}" min="100" max="350" required></div><div class="field"><label>Block reach (cm)</label><input name="blockReach" type="number" value="${p.blockReach}" min="100" max="350" required></div></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button class="button">Simpan profil</button></div></form>`, fd => {
+          <form id="update-profile-form"><div class="form-grid" style="margin-top:15px"><div class="field"><label>Jenis kelamin (opsional)</label><select name="gender"><option value="" ${!p.gender ? "selected" : ""}>Belum diisi</option><option value="Perempuan" ${p.gender === "Perempuan" ? "selected" : ""}>Perempuan</option><option value="Laki-laki" ${p.gender === "Laki-laki" ? "selected" : ""}>Laki-laki</option></select></div><div class="field"><label>Tanggal lahir (opsional)</label><input name="birthDate" type="date" max="${todayISO()}" value="${esc(p.birthDate || "")}"></div><div class="field"><label>Tinggi (cm)</label><input name="height" type="number" value="${p.height}" min="100" max="230" required></div><div class="field"><label>Berat (kg)</label><input name="weight" type="number" value="${p.weight}" min="20" max="180" required></div><div class="field"><label>Spike reach (cm)</label><input name="spikeReach" type="number" value="${p.spikeReach}" min="100" max="350" required></div><div class="field"><label>Block reach (cm)</label><input name="blockReach" type="number" value="${p.blockReach}" min="100" max="350" required></div>
+          <h3 class="card-title field full" style="margin:8px 0 0">Akun login pemain</h3><div class="field full"><label>Username atau email</label><input name="username" type="text" maxlength="254" autocomplete="username" value="${esc(account ? account.username : "")}" placeholder="contoh: alya12"></div><div class="field full"><label>${account ? "Kata sandi baru (opsional)" : `Kata sandi (minimal ${MIN_PASSWORD_LENGTH} karakter)`}</label><input name="password" type="password" minlength="${MIN_PASSWORD_LENGTH}" maxlength="1024" autocomplete="new-password" placeholder="${account ? "Kosongkan jika tidak ingin mengganti kata sandi" : "Kosongkan jika belum ingin membuat akun"}"></div></div><p class="privacy-note">${account ? "Biarkan kata sandi kosong jika tidak ingin mengubah akun. Jika username diubah, masukkan kata sandi baru juga." : "Isi username dan kata sandi untuk membuat akun login. Kedua kolom dapat dikosongkan jika belum diperlukan."}</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button class="button">Simpan perubahan</button></div></form>`, async fd => {
+          const username = String(fd.get("username") || "").trim().toLowerCase();
+          const password = String(fd.get("password") || "");
+          const accountChanged = account
+            ? username !== account.username || Boolean(password)
+            : Boolean(username || password);
+          if (accountChanged && (!username || !password)) {
+            throw new Error(`Isi username dan kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter untuk menyimpan perubahan akun.`);
+          }
+          if (accountChanged && password.length < MIN_PASSWORD_LENGTH) {
+            throw new Error(`Kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter.`);
+          }
+          const previousPlayer = JSON.parse(JSON.stringify(p));
           p.gender = String(fd.get("gender") || "");
           p.birthDate = String(fd.get("birthDate") || "");
           const record = { date: todayISO(), height: Number(fd.get("height")), weight: Number(fd.get("weight")), spikeReach: Number(fd.get("spikeReach")), blockReach: Number(fd.get("blockReach")) };
@@ -817,6 +821,34 @@
           p.history = p.history || [];
           const previous = p.history[p.history.length - 1];
           if (!previous || ["height", "weight", "spikeReach", "blockReach"].some(key => Number(previous[key]) !== record[key])) p.history.push(record);
+          if (accountChanged) {
+            if (!await persist()) {
+              Object.assign(p, previousPlayer);
+              return false;
+            }
+            try {
+              const result = await api(account ? `/api/player-accounts/${p.id}` : "/api/player-accounts", {
+                method: account ? "PUT" : "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ playerId: Number(p.id), username, password })
+              });
+              playerAccounts = playerAccounts.filter(item => Number(item.playerId) !== Number(p.id)).concat(result.account);
+            } catch (error) {
+              throw new Error(`Data pemain tersimpan, tetapi akun login gagal diperbarui: ${error.message}`);
+            }
+            if (activeRole() === "admin") {
+              try {
+                const users = await api("/api/admin/users");
+                serverUsers = users.users;
+              } catch (error) {
+                console.error("Daftar akun admin tidak dapat diperbarui.", error);
+                toast(`Pemain dan akun login tersimpan, tetapi daftar akun gagal dimuat: ${error.message}`);
+                return "skip-persist";
+              }
+            }
+            toast(account ? "Data pemain dan akun login diperbarui." : "Data pemain diperbarui dan akun login dibuat.");
+            return "skip-persist";
+          }
           toast("Profil dan riwayat antropometri diperbarui.");
         });
       }
@@ -1341,8 +1373,7 @@
             }
           }
         }));
-        $("#content").querySelectorAll("[data-edit-player]").forEach(el => el.addEventListener("click", () => playerProfileModal(el.dataset.editPlayer)));
-        $("#content").querySelectorAll("[data-player-account]").forEach(el => el.addEventListener("click", () => playerAccountModal(el.dataset.playerAccount)));
+        $("#content").querySelectorAll("[data-edit-player]").forEach(el => el.addEventListener("click", () => editPlayerModal(el.dataset.editPlayer)));
         $("#content").querySelectorAll("[data-edit-team]").forEach(el => el.addEventListener("click", () => teamModal(el.dataset.editTeam)));
         $("#content").querySelectorAll("[data-delete-team]").forEach(el => el.addEventListener("click", async () => {
           const team = data.teams.find(item => Number(item.id) === Number(el.dataset.deleteTeam));
@@ -1530,7 +1561,7 @@
       });
       $("#profile-button").addEventListener("click", accountProfileModal);
       async function initializeApp() {
-        $("#login-screen").hidden = false;
+        $("#session-loading").hidden = false;
         try {
           try {
             const branding = await api("/api/branding");
@@ -1542,6 +1573,8 @@
           signedInUser = session.user;
           if (!signedInUser) {
             $("#app").hidden = true;
+            $("#session-loading").hidden = true;
+            $("#login-screen").hidden = false;
             return;
           }
           const stored = await api("/api/state");
@@ -1582,11 +1615,14 @@
             serverUsers = result.users;
             backupSettings = await api("/api/admin/backup-settings");
           }
+          restoreLastPage();
+          $("#session-loading").hidden = true;
           $("#login-screen").hidden = true;
           $("#app").hidden = false;
           render();
         } catch (error) {
           $("#app").hidden = true;
+          $("#session-loading").hidden = true;
           $("#login-screen").hidden = false;
           if (error.status === 401) return;
           const message = $("#login-error");
