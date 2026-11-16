@@ -89,7 +89,6 @@
       }
       let currentPage = "dashboard";
       let settingsRoleKey = data.role || "coach";
-      let selectedSessionId = data.sessions[0] ? data.sessions[0].id : null;
       let selectedMatchId = data.matches[0] ? data.matches[0].id : null;
       let matchStatsDirty = false;
       let selectedTargetPlayerId = null;
@@ -98,7 +97,6 @@
       calendarMonth.setDate(1);
       let selectedCalendarDate = "";
       let searchTerm = "";
-      let pendingAttendance = {};
       let selectedPlayerIds = new Set();
       let bottomNavRole = "coach";
 
@@ -383,23 +381,22 @@
           <p class="privacy-note">Template Excel (.xlsx) dan CSV memakai delapan kolom biodata/antropometri wajib. Jenis Kelamin dan Tanggal Lahir (YYYY-MM-DD) tersedia sebagai kolom opsional; template lama tetap didukung.</p>
           <p class="privacy-note">Riwayat pengukuran disimpan saat profil diperbarui. Pertimbangkan usia, tahap pertumbuhan, dan teknik pengukuran yang konsisten saat membandingkan antropometri.</p>`;
       }
-      function sessionOptions() {
-        return data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date)).map(s => `<option value="${s.id}" ${Number(s.id) === Number(selectedSessionId) ? "selected" : ""}>${esc(s.title)} · ${formatDate(s.date)}</option>`).join("");
+      function sessionAttendanceComplete(session) {
+        return data.players.length > 0 && data.players.every(player =>
+          ["Hadir", "Izin", "Sakit", "Alpa"].includes((session.attendance || {})[player.id])
+        );
+      }
+      function sessionListMarkup(sessions) {
+        if (!sessions.length) return '<div class="empty">Belum ada sesi latihan. Tambahkan sesi untuk mulai mencatat kehadiran.</div>';
+        return `<div class="table-wrap"><table><thead><tr><th>Judul sesi</th><th>Tanggal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${sessions.map(session => {
+          const complete = sessionAttendanceComplete(session);
+          return `<tr><td><strong>${esc(session.title)}</strong></td><td>${formatDate(session.date)}</td><td><span class="tag ${complete ? "green" : "red"}">${complete ? "Tersimpan" : "Belum Diisi"}</span></td><td><div class="toolbar-actions"><button class="button secondary small" data-session-review="${session.id}">Tinjau</button><button class="button small" data-session-edit="${session.id}">Edit</button><button class="close-x" data-delete-session="${session.id}" title="Hapus sesi" aria-label="Hapus sesi ${esc(session.title)}">×</button></div></td></tr>`;
+        }).join("")}</tbody></table></div>`;
       }
       function attendancePage() {
-        const session = data.sessions.find(s => Number(s.id) === Number(selectedSessionId));
-        if (session && !pendingAttendance[session.id]) pendingAttendance[session.id] = Object.assign({}, session.attendance || {});
-        const present = session ? Object.values(pendingAttendance[session.id] || {}).filter(s => s === "Hadir").length : 0;
-        return `${heading("Kehadiran latihan", "Catat status setiap pemain dan pantau konsistensi partisipasi.", '<button class="button secondary" data-action="new-session">＋ Sesi baru</button>')}
-          <div class="grid section-grid"><section class="card">
-            <div class="attendance-head"><div><div class="card-title">Daftar absensi</div><div class="card-sub">${session ? esc(session.title) + " · " + formatDate(session.date) : "Belum ada sesi"}</div></div><div class="inline-form"><select class="select-mini" id="session-select">${sessionOptions()}</select><span class="tag">${present}/${data.players.length} hadir</span></div></div>
-            ${session ? data.players.map(p => { const status = (pendingAttendance[session.id] || {})[p.id] || ""; return `<div class="attendance-row"><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">${esc(p.position)} · #${esc(p.number)}</span></span></div><div>${!status ? '<span class="card-sub" style="margin-right:8px">Belum dicatat</span>' : ""}<span class="status-group">${["Hadir", "Izin", "Sakit", "Alpa"].map(s => `<button class="status-btn ${status === s ? "selected" : ""}" data-attendance="${p.id}" data-status="${s}">${s}</button>`).join("")}</span></div></div>`; }).join("") : '<div class="empty">Buat sesi untuk mulai mencatat absensi.</div>'}
-            ${session ? '<div style="padding:14px 18px;text-align:right"><button class="button" data-action="save-attendance">Simpan absensi</button></div>' : ""}
-          </section>
-          <aside class="card side-note"><h2 class="card-title">Ringkasan disiplin</h2><p class="card-sub">Akumulasi dari sesi latihan tersimpan</p><div style="font-size:32px;font-weight:800;margin:18px 0 2px">${allAttendanceRate()}%</div><div class="card-sub">Kehadiran rata-rata tim</div>
-            <div class="note-item" style="margin-top:12px"><div class="note-title">Kehadiran ↔ progres spike reach</div><div class="note-copy">${(() => { const correlation = attendanceReachCorrelation(); return correlation.value === null ? `Data belum cukup (perlu 3 pemain; tersedia ${correlation.count}).` : `Korelasi Pearson r = ${correlation.value.toFixed(2)} dari ${correlation.count} pemain.`; })()} Hubungan ini indikatif, bukan bukti sebab-akibat. Bandingkan juga efisiensi teknik pada rekomendasi.</div></div>
-            <div class="note-item"><div class="note-title">Riwayat sesi</div><div class="note-copy">${data.sessions.length} sesi telah dicatat untuk ${data.players.length} pemain.</div></div>
-          </aside></div>`;
+        const sessions = data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date));
+        return `${heading("Kehadiran & sesi latihan", "Kelola sesi, tinjau catatan, dan isi absensi pemain.", '<button class="button" data-action="new-session">＋ Tambah Sesi</button>')}
+          <section class="card"><div class="card-head"><div><h2 class="card-title">Daftar sesi latihan</h2><p class="card-sub">${sessions.length} sesi</p></div></div>${sessionListMarkup(sessions)}</section>`;
       }
       function schedulePage() {
         const monthKey = dateKey(calendarMonth).slice(0, 7);
@@ -453,11 +450,11 @@
         const activities = data.events
           .filter(event => ["Latihan", "Latihan pribadi", "Latihan tim", "Les", "Pertandingan", "Sparring", "Turnamen"].includes(event.type))
           .slice().sort((a, b) => b.date.localeCompare(a.date));
-        return `${heading("Latihan", "Kelola kegiatan dan catat materi serta evaluasi setiap sesi.", '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="button secondary" data-action="add-training-activity">＋ Kegiatan</button><button class="button" data-action="new-session">＋ Catat sesi</button></div>')}
+        return `${heading("Latihan", "Kelola kegiatan dan sesi latihan, termasuk absensi serta evaluasi pemain.", '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="button secondary" data-action="add-training-activity">＋ Kegiatan</button><button class="button" data-action="new-session">＋ Tambah Sesi</button></div>')}
           <section class="card"><div class="card-head"><div><h2 class="card-title">Kegiatan latihan dan pertandingan</h2><p class="card-sub">Latihan pribadi, latihan tim, les, dan agenda pertandingan</p></div></div>
             ${activities.length ? `<div class="event-list">${activities.map(event => `<div class="event-row"><div class="date-tile"><strong>${new Date(`${event.date}T12:00:00`).getDate()}</strong><span>${shortMonth(event.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(event.title)}</div><div class="event-meta">${formatDate(event.date)}${event.time ? ` · ${esc(event.time)}` : ""}${event.location ? ` · ${esc(event.location)}` : ""}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div><span class="tag ${eventTypeClass(event.type)}">${esc(event.type)}</span><button class="close-x" data-delete-event="${event.id}" aria-label="Hapus ${esc(event.title)}">×</button></div>`).join("")}</div>` : '<div class="empty">Belum ada kegiatan. Tambahkan kegiatan pribadi, tim, les, atau pertandingan.</div>'}
           </section>
-          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(265px,1fr));align-items:start;margin-top:16px">${sorted.length ? sorted.map(s => `<article class="card side-note"><div style="display:flex;justify-content:space-between;align-items:center"><span class="tag blue">${formatDate(s.date)}</span><button class="close-x" data-delete-session="${s.id}" title="Hapus sesi">×</button></div><h2 class="card-title" style="margin-top:13px">${esc(s.title)}</h2><div class="card-sub">${Object.values(s.attendance || {}).filter(x => x === "Hadir").length}/${data.players.length} pemain hadir</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin:13px 0">${(s.drills || []).map(d => `<span class="tag">${esc(d)}</span>`).join("") || '<span class="card-sub">Belum ada materi tercatat</span>'}</div><div class="note-item"><div class="note-title">Evaluasi sesi</div><div class="note-copy">${esc(s.notes || "Belum ada catatan evaluasi.")}</div></div>${Object.entries(s.evaluations || {}).filter(([, text]) => text).map(([id, text]) => { const p = playerById(id); return p ? `<div class="note-item"><div class="note-title">${esc(p.name)}</div><div class="note-copy">${esc(text)}</div></div>` : ""; }).join("")}</article>`).join("") : '<div class="card empty">Belum ada sesi latihan. Catat sesi pertama.</div>'}</div>
+          <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Sesi latihan</h2><p class="card-sub">Tinjau detail sesi atau ubah absensi dan evaluasi.</p></div></div>${sessionListMarkup(sorted)}</section>
           <p class="privacy-note">Catatan sesi menyimpan materi, kehadiran, dan evaluasi individu. Agenda kegiatan tetap tampil di kalender; statistik pertandingan live dicatat dari menu Statistik.</p>`;
       }
       function matchesPage() {
@@ -853,13 +850,132 @@
         });
       }
       function newSessionModal() {
-        showModal("Catat sesi latihan", `<form><div class="form-grid"><div class="field full"><label>Nama sesi</label><input name="title" required maxlength="100" placeholder="Contoh: Latihan teknik & taktik"></div><div class="field"><label>Tanggal</label><input name="date" type="date" value="${todayISO()}" required></div><div class="field"><label>Materi latihan (pisahkan koma)</label><input name="drills" placeholder="Drilling passing, spike footwork"></div><div class="field full"><label>Catatan progres / evaluasi sesi</label><textarea name="notes" placeholder="Fokus sesi dan evaluasi umum"></textarea></div>${data.players.map(p => `<div class="field full"><label>Evaluasi individu · ${esc(p.name)}</label><input name="eval_${p.id}" maxlength="240" placeholder="Contoh: platform receive stabil, lanjutkan latihan target"></div>`).join("")}</div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan sesi</button></div></form>`, fd => {
+        showModal("Tambah sesi latihan", `<form><div class="form-grid">
+          <div class="field full"><label>Nama sesi</label><input name="title" required maxlength="100" placeholder="Contoh: Latihan teknik & taktik"></div>
+          <div class="field"><label>Tanggal</label><input name="date" type="date" value="${todayISO()}" required></div>
+          </div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan</button></div></form>`, fd => {
+          const title = String(fd.get("title") || "").trim();
+          const date = String(fd.get("date") || "");
+          if (!title || !date) return false;
+          data.sessions.unshift({
+            id: Date.now(), title, date, drills: [], notes: "", evaluations: {},
+            attendance: {}, attendanceSaved: false
+          });
+          toast("Sesi latihan ditambahkan. Absensi belum diisi.");
+        });
+      }
+      function reviewSessionModal(sessionId) {
+        const session = data.sessions.find(item => Number(item.id) === Number(sessionId));
+        if (!session) return;
+        const attendance = session.attendance || {};
+        const evaluations = session.evaluations || {};
+        const attendanceRows = data.players.map(player => {
+          const status = attendance[player.id] || "Belum dicatat";
+          const statusClass = { Hadir: "green", Izin: "blue", Sakit: "orange", Alpa: "red" }[status] || "red";
+          return `<div class="switch-row"><span>${esc(player.name)}</span><span class="tag ${statusClass}">${esc(status)}</span></div>`;
+        }).join("");
+        const evaluationRows = Object.entries(evaluations).filter(([, text]) => text).map(([playerId, text]) => {
+          const player = playerById(playerId);
+          return player ? `<div class="note-item"><div class="note-title">${esc(player.name)}</div><div class="note-copy">${esc(text)}</div></div>` : "";
+        }).join("");
+        showModal(`${esc(session.title)} · Tinjau`, `<div class="note-item"><div class="note-title">Tanggal</div><div class="note-copy">${formatDate(session.date)}</div></div>
+          <div class="note-item"><div class="note-title">Status absensi</div>${attendanceRows || '<div class="note-copy">Belum ada data pemain.</div>'}</div>
+          <div class="note-item"><div class="note-title">Materi latihan</div><div class="note-copy">${(session.drills || []).map(esc).join(", ") || "Belum diisi."}</div></div>
+          <div class="note-item"><div class="note-title">Catatan progres / evaluasi umum</div><div class="note-copy">${esc(session.notes || "Belum diisi.")}</div></div>
+          <div class="note-item"><div class="note-title">Evaluasi individu</div>${evaluationRows || '<div class="note-copy">Belum ada evaluasi individu.</div>'}</div>
+          <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Tutup</button><button type="button" class="button" data-session-edit="${session.id}">Edit</button></div>`);
+        $("#modal-root [data-session-edit]").addEventListener("click", () => editSessionModal(session.id));
+      }
+      function editSessionModal(sessionId) {
+        const session = data.sessions.find(item => Number(item.id) === Number(sessionId));
+        if (!session) return;
+        const attendanceDraft = Object.assign({}, session.attendance || {});
+        data.players.forEach(player => {
+          if (!["Hadir", "Izin", "Sakit", "Alpa"].includes(attendanceDraft[player.id])) attendanceDraft[player.id] = "Hadir";
+        });
+        const attendanceRows = data.players.map(player => `<div class="attendance-row" data-session-player-row="${player.id}" data-player-name="${esc(player.name.toLowerCase())}">
+          <div class="player-name"><span class="player-avatar">${initials(player.name)}</span><span>${esc(player.name)}<span class="position">${esc(player.position)} · #${esc(player.number)}</span></span></div>
+          <span class="status-group">${["Hadir", "Izin", "Sakit", "Alpa"].map(status => `<button type="button" class="status-btn ${attendanceDraft[player.id] === status ? "selected" : ""}" data-edit-attendance="${player.id}" data-status="${status}">${status}</button>`).join("")}</span>
+          </div>`).join("");
+        const evaluationFields = data.players.map(player => `<div class="field full" data-session-evaluation="${player.id}" ${attendanceDraft[player.id] === "Hadir" ? "" : "hidden"}>
+          <label>Catatan evaluasi · ${esc(player.name)}</label><textarea name="eval_${player.id}" maxlength="500" placeholder="Catatan perkembangan individu">${esc((session.evaluations || {})[player.id] || "")}</textarea>
+          </div>`).join("");
+        showModal("Edit sesi · " + esc(session.title), `<form id="edit-session-form">
+          <div class="form-grid">
+            <div class="field full"><label>Nama sesi</label><input name="title" required maxlength="100" value="${esc(session.title)}"></div>
+            <div class="field"><label>Tanggal</label><input name="date" type="date" required value="${esc(session.date)}"></div>
+            <div class="field full"><label>Pencarian nama pemain</label><input id="session-player-filter" type="search" placeholder="Cari nama pemain..."></div>
+          </div>
+          <div class="attendance-list">${attendanceRows || '<div class="empty">Belum ada data pemain.</div>'}</div>
+          <div style="padding:14px 0;text-align:right"><button type="button" class="button secondary" id="save-session-attendance">Simpan Absensi</button></div>
+          <div class="form-grid">
+            <div class="field full"><label>Catatan progres / evaluasi umum sesi</label><textarea name="notes" maxlength="2000" placeholder="Catatan umum sesi">${esc(session.notes || "")}</textarea></div>
+            <div class="field full"><label>Materi latihan (pisahkan dengan koma)</label><input name="drills" value="${esc((session.drills || []).join(", "))}" placeholder="Drilling passing, spike footwork"></div>
+            <div class="field full"><strong class="card-title">Catatan evaluasi individu</strong></div>
+            ${evaluationFields}
+          </div>
+          <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan Sesi</button></div>
+          </form>`, async fd => {
+          const title = String(fd.get("title") || "").trim();
+          const date = String(fd.get("date") || "");
+          if (!title || !date) return false;
+          if (data.players.some(player => !["Hadir", "Izin", "Sakit", "Alpa"].includes(attendanceDraft[player.id]))) {
+            throw new Error("Pilih status absensi untuk setiap pemain.");
+          }
           const evaluations = {};
-          data.players.forEach(p => { const value = String(fd.get("eval_" + p.id) || "").trim(); if (value) evaluations[p.id] = value; });
-          const session = { id: Date.now(), title: String(fd.get("title")).trim(), date: fd.get("date"), drills: String(fd.get("drills") || "").split(",").map(x => x.trim()).filter(Boolean), notes: String(fd.get("notes") || "").trim(), evaluations, attendance: {} };
-          if (!session.title) return false;
-          data.sessions.unshift(session); selectedSessionId = session.id; pendingAttendance[session.id] = {};
-          toast("Sesi latihan berhasil dicatat.");
+          data.players.forEach(player => {
+            const value = String(fd.get(`eval_${player.id}`) || "").trim();
+            if (attendanceDraft[player.id] === "Hadir" && value) evaluations[player.id] = value;
+          });
+          const previous = JSON.parse(JSON.stringify(session));
+          Object.assign(session, {
+            title, date, attendance: Object.assign({}, attendanceDraft), attendanceSaved: true,
+            notes: String(fd.get("notes") || "").trim(),
+            drills: String(fd.get("drills") || "").split(",").map(value => value.trim()).filter(Boolean),
+            evaluations
+          });
+          if (!await persist()) {
+            Object.assign(session, previous);
+            return false;
+          }
+          toast("Absensi dan data sesi berhasil disimpan.");
+          return "skip-persist";
+        });
+        const root = $("#modal-root");
+        root.querySelectorAll("[data-edit-attendance]").forEach(button => button.addEventListener("click", () => {
+          const playerId = button.dataset.editAttendance;
+          attendanceDraft[playerId] = button.dataset.status;
+          const row = button.closest("[data-session-player-row]");
+          row.querySelectorAll("[data-edit-attendance]").forEach(statusButton => statusButton.classList.toggle("selected", statusButton.dataset.status === button.dataset.status));
+          const evaluation = root.querySelector(`[data-session-evaluation="${playerId}"]`);
+          if (evaluation) evaluation.hidden = button.dataset.status !== "Hadir";
+        }));
+        const filter = $("#session-player-filter", root);
+        if (filter) filter.addEventListener("input", () => {
+          const query = filter.value.trim().toLowerCase();
+          root.querySelectorAll("[data-session-player-row]").forEach(row => { row.hidden = !row.dataset.playerName.includes(query); });
+        });
+        const saveAttendance = $("#save-session-attendance", root);
+        if (saveAttendance) saveAttendance.addEventListener("click", async () => {
+          if (!data.players.length) {
+            toast("Tambahkan pemain terlebih dahulu sebelum menyimpan absensi.");
+            return;
+          }
+          const previousAttendance = session.attendance;
+          const previousSaved = session.attendanceSaved;
+          const previousEvaluations = session.evaluations;
+          session.attendance = Object.assign({}, attendanceDraft);
+          session.attendanceSaved = true;
+          session.evaluations = Object.fromEntries(Object.entries(session.evaluations || {})
+            .filter(([playerId]) => attendanceDraft[playerId] === "Hadir"));
+          saveAttendance.disabled = true;
+          if (await persist()) toast("Absensi berhasil disimpan.");
+          else {
+            session.attendance = previousAttendance;
+            session.attendanceSaved = previousSaved;
+            session.evaluations = previousEvaluations;
+          }
+          saveAttendance.disabled = false;
         });
       }
       function addEventModal(defaultType) {
@@ -1222,7 +1338,6 @@
         }
         data.role = signedInUser.role;
         settingsRoleKey = signedInUser.role;
-        selectedSessionId = data.sessions[0] ? data.sessions[0].id : null;
         selectedMatchId = data.matches[0] ? data.matches[0].id : null;
         selectedTargetPlayerId = signedInUser.role === "player" ? signedInUser.playerId : (data.players[0] ? data.players[0].id : null);
         return needsTeamMenuMigration || needsAdminSettingsMigration;
@@ -1341,11 +1456,6 @@
             case "backup-now": await sendBackupNow(); break;
             case "download-backup": await downloadBackup(); break;
             case "restore-backup": await restoreBackup(); break;
-            case "save-attendance": {
-              const s = data.sessions.find(x => Number(x.id) === Number(selectedSessionId));
-              if (s) { s.attendance = Object.assign({}, pendingAttendance[s.id] || {}); toast("Absensi tersimpan."); persist(); render(); }
-              break;
-            }
             case "export-report": exportReport(false); break;
             case "export-attendance": exportReport(true); break;
             case "export-grades": exportReport("grades"); break;
@@ -1373,6 +1483,8 @@
             }
           }
         }));
+        $("#content").querySelectorAll("[data-session-review]").forEach(el => el.addEventListener("click", () => reviewSessionModal(el.dataset.sessionReview)));
+        $("#content").querySelectorAll("[data-session-edit]").forEach(el => el.addEventListener("click", () => editSessionModal(el.dataset.sessionEdit)));
         $("#content").querySelectorAll("[data-edit-player]").forEach(el => el.addEventListener("click", () => editPlayerModal(el.dataset.editPlayer)));
         $("#content").querySelectorAll("[data-edit-team]").forEach(el => el.addEventListener("click", () => teamModal(el.dataset.editTeam)));
         $("#content").querySelectorAll("[data-delete-team]").forEach(el => el.addEventListener("click", async () => {
@@ -1381,13 +1493,15 @@
           data.teams = data.teams.filter(item => Number(item.id) !== Number(team.id));
           if (await persist()) { render(); toast("Tim dihapus."); }
         }));
-        $("#content").querySelectorAll("[data-attendance]").forEach(el => el.addEventListener("click", () => {
-          if (!pendingAttendance[selectedSessionId]) pendingAttendance[selectedSessionId] = {};
-          pendingAttendance[selectedSessionId][el.dataset.attendance] = el.dataset.status;
-          render();
-        }));
         $("#content").querySelectorAll("[data-delete-event]").forEach(el => el.addEventListener("click", () => { data.events = data.events.filter(e => Number(e.id) !== Number(el.dataset.deleteEvent)); persist(); render(); toast("Agenda dihapus."); }));
-        $("#content").querySelectorAll("[data-delete-session]").forEach(el => el.addEventListener("click", () => { data.sessions = data.sessions.filter(s => Number(s.id) !== Number(el.dataset.deleteSession)); selectedSessionId = data.sessions[0] ? data.sessions[0].id : null; persist(); render(); toast("Sesi latihan dihapus."); }));
+        $("#content").querySelectorAll("[data-delete-session]").forEach(el => el.addEventListener("click", async () => {
+          const session = data.sessions.find(item => Number(item.id) === Number(el.dataset.deleteSession));
+          if (!session) return;
+          const index = data.sessions.indexOf(session);
+          data.sessions.splice(index, 1);
+          if (await persist()) { render(); toast("Sesi latihan dihapus."); }
+          else { data.sessions.splice(index, 0, session); render(); }
+        }));
         $("#content").querySelectorAll("[data-delete-stat]").forEach(el => el.addEventListener("click", () => {
           const [mid, pid, skill] = el.dataset.deleteStat.split(":"); const m = data.matches.find(x => Number(x.id) === Number(mid));
           if (m) { m.stats = m.stats.filter(s => !(Number(s.playerId) === Number(pid) && s.skill === skill)); persist(); render(); }
@@ -1427,8 +1541,6 @@
           currentPage = "matches";
           render();
         }));
-        const sessionSelect = $("#session-select");
-        if (sessionSelect) sessionSelect.addEventListener("change", () => { selectedSessionId = Number(sessionSelect.value); render(); });
         const matchSelect = $("#match-select");
         if (matchSelect) matchSelect.addEventListener("change", () => { selectedMatchId = Number(matchSelect.value); render(); });
         const playerSearch = $("#player-search");
