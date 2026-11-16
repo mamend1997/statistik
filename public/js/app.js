@@ -278,7 +278,7 @@
           image.alt = "";
           image.className = "profile-button-avatar";
           button.appendChild(image);
-        } else button.textContent = "Profil";
+        } else button.textContent = "";
         const label = document.createElement("span");
         label.textContent = "Profil";
         button.appendChild(label);
@@ -355,7 +355,7 @@
       function playerRows(players) {
         return players.map(p => {
           const account = playerAccounts.find(item => Number(item.playerId) === Number(p.id));
-          return `<tr><td><input class="player-select" type="checkbox" data-select-player="${p.id}" ${selectedPlayerIds.has(Number(p.id)) ? "checked" : ""} aria-label="Pilih ${esc(p.name)}"></td><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.position)}</td><td>${esc(p.className)}</td><td>${esc(p.height)} cm</td><td>${esc(p.weight)} kg</td><td>${esc(p.spikeReach)} / ${esc(p.blockReach)} cm</td><td>${attendanceRate(p.id)}%</td><td><button class="button secondary small" data-profile="${p.id}">Profil</button><button class="button small" data-player-account="${p.id}">${account ? "Akun login" : "＋ Buat login"}</button>${account ? `<span class="position">${esc(account.username)}</span>` : ""}</td></tr>`;
+          return `<tr><td><input class="player-select" type="checkbox" data-select-player="${p.id}" ${selectedPlayerIds.has(Number(p.id)) ? "checked" : ""} aria-label="Pilih ${esc(p.name)}"></td><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.position)}</td><td>${esc(p.className)}</td><td>${esc(p.height)} cm</td><td>${esc(p.weight)} kg</td><td>${esc(p.spikeReach)} / ${esc(p.blockReach)} cm</td><td>${attendanceRate(p.id)}%</td><td><button class="button secondary small" data-edit-player="${p.id}">Edit</button><button class="button small" data-player-account="${p.id}">${account ? "Akun login" : "＋ Buat login"}</button>${account ? `<span class="position">${esc(account.username)}</span>` : ""}</td></tr>`;
         }).join("");
       }
       function playersPage() {
@@ -802,7 +802,7 @@
           reader.readAsDataURL(file);
         });
       }
-      function profileModal(id) {
+      function playerProfileModal(id) {
         const p = playerById(id); if (!p) return;
         const history = (p.history || []).slice().sort((a, b) => a.date.localeCompare(b.date));
         showModal(esc(p.name) + " · Profil atlet", `<div class="grid metrics" style="grid-template-columns:repeat(2,1fr);margin:0 0 15px;gap:9px">
@@ -1341,7 +1341,7 @@
             }
           }
         }));
-        $("#content").querySelectorAll("[data-profile]").forEach(el => el.addEventListener("click", () => profileModal(el.dataset.profile)));
+        $("#content").querySelectorAll("[data-edit-player]").forEach(el => el.addEventListener("click", () => playerProfileModal(el.dataset.editPlayer)));
         $("#content").querySelectorAll("[data-player-account]").forEach(el => el.addEventListener("click", () => playerAccountModal(el.dataset.playerAccount)));
         $("#content").querySelectorAll("[data-edit-team]").forEach(el => el.addEventListener("click", () => teamModal(el.dataset.editTeam)));
         $("#content").querySelectorAll("[data-delete-team]").forEach(el => el.addEventListener("click", async () => {
