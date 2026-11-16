@@ -15,8 +15,8 @@ const app = express();
 const port = Number(process.env.PORT) || 3000;
 const publicDirectory = path.resolve(__dirname, "public");
 const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const validPlayerUsername = /^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$/;
-const validRoles = new Set(["admin", "principal", "curriculum", "coach", "player"]);
+const validUsername = /^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$/;
+const validRoles = new Set(["admin", "principal", "curriculum", "coach"]);
 const validMenus = new Set(["dashboard", "players", "teams", "attendance", "schedule", "training", "matches", "recommendations", "reports", "targets", "strategy", "activityLog", "settings"]);
 const accessLevels = new Set(["view", "edit", "full"]);
 const dataMenuSections = [
@@ -123,14 +123,13 @@ function requestUser(request, response, next) {
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const session = database.get(
       `SELECT app_users.id, app_users.name, app_users.email,
-              CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
-              player_user_links.player_id, app_users.avatar_data_url, app_users.created_at
+              app_users.role, app_users.avatar_data_url, app_users.created_at
        FROM auth_sessions JOIN app_users ON app_users.id = auth_sessions.user_id
-       LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
-       WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?`,
+       WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?
+         AND NOT EXISTS (SELECT 1 FROM player_user_links WHERE player_user_links.user_id = app_users.id)`,
       [tokenHash, Date.now()]
     );
-    request.user = session || null;
+    request.user = session && validRoles.has(session.role) ? session : null;
   }
   next();
 }
@@ -196,11 +195,6 @@ function defaultAccessLevel(role) {
 
 function assertStateAccess(nextState, previousState, role) {
   if (role === "admin") return;
-  if (role === "player") {
-    const error = new Error("Akun pemain tidak dapat mengubah data bersama.");
-    error.status = 403;
-    throw error;
-  }
   for (const { section, menu } of dataMenuSections) {
     const before = previousState[section] == null ? (section === "targets" ? {} : []) : previousState[section];
     const after = nextState[section] == null ? (section === "targets" ? {} : []) : nextState[section];
@@ -312,7 +306,7 @@ function isRecord(value) {
 }
 
 function validLoginIdentifier(value) {
-  return validEmail.test(value) || validPlayerUsername.test(value);
+  return validEmail.test(value) || validUsername.test(value);
 }
 
 function sanitizeTeams(input, players) {
@@ -438,8 +432,7 @@ function sanitizeAppState(input, previous, role) {
       const configuredLevel = configuredPermissions && configuredPermissions[menu];
         accessPermissions[roleName][menu] = roleName === "admin"
           ? "full"
-          : roleName === "player" ? "view"
-            : accessLevels.has(configuredLevel) ? configuredLevel : defaultAccessLevel(roleName);
+          : accessLevels.has(configuredLevel) ? configuredLevel : defaultAccessLevel(roleName);
     }
   }
   const clean = {
@@ -471,17 +464,6 @@ function writeAppState(input, role, initialOnly, actor) {
     const error = new Error("Data server sudah tersedia; import awal tidak dapat menimpanya.");
     error.status = 409;
     throw error;
-  }
-  if (current.data && isRecord(input) && Array.isArray(input.players)) {
-    const incomingIds = new Set(input.players.filter(isRecord).map(player => Number(player.id)));
-    const linkedRemoval = current.data.players.find(player =>
-      !incomingIds.has(Number(player.id)) && database.get("SELECT user_id FROM player_user_links WHERE player_id = ?", [Number(player.id)])
-    );
-    if (linkedRemoval) {
-      const error = new Error(`Hapus akun pemain ${linkedRemoval.name} sebelum menghapus biodatanya.`);
-      error.status = 409;
-      throw error;
-    }
   }
   const state = sanitizeAppState(input, current.data, role);
   if (current.data) assertStateAccess(state, current.data, role);
@@ -555,7 +537,8 @@ app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response
       [identifier]
     );
     const passwordHash = user ? user.password_hash : await bcrypt.hash(crypto.randomBytes(24).toString("hex"), 10);
-    if (!user || !(await bcrypt.compare(password, passwordHash))) {
+    const passwordMatches = await bcrypt.compare(password, passwordHash);
+    if (!user || !passwordMatches || user.player_id != null || !validRoles.has(user.role)) {
       apiError(response, 401, "Email atau kata sandi tidak sesuai.");
       return;
     }
@@ -566,18 +549,14 @@ app.post("/api/login", requireSameOrigin, loginLimiter, async (request, response
     database.transaction(() => {
       database.run("DELETE FROM auth_sessions WHERE expires_at <= ?", [Date.now()]);
       database.run("INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)", [tokenHash, user.id, expiresAt]);
-      insertActivity(
-        { id: user.id, name: user.name, role: user.player_id ? "player" : user.role },
-        "Login berhasil"
-      );
+      insertActivity({ id: user.id, name: user.name, role: user.role }, "Login berhasil");
     });
     setSessionCookie(response, token);
     response.json({ user: {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: user.player_id ? "player" : user.role,
-      playerId: user.player_id || null,
+      role: user.role,
       avatar: user.avatar_data_url || "",
       createdAt: user.created_at
     } });
@@ -593,7 +572,6 @@ app.get("/api/session", (request, response) => {
     name: user.name,
     email: user.email,
     role: user.role,
-    playerId: user.player_id || null,
     avatar: user.avatar_data_url || "",
     createdAt: user.created_at
   } : null });
@@ -802,7 +780,6 @@ app.put("/api/profile", requireSameOrigin, requireUser, async (request, response
       name,
       email,
       role: request.user.role,
-      playerId: request.user.player_id || null,
       avatar: safeAvatar,
       createdAt: current.created_at
     } });
@@ -818,9 +795,9 @@ app.put("/api/profile", requireSameOrigin, requireUser, async (request, response
 app.get("/api/admin/users", requireUser, requireAdmin, (request, response) => {
   const users = database.all(
     `SELECT app_users.id, app_users.name, app_users.email, app_users.avatar_data_url AS avatar, app_users.created_at AS createdAt,
-            CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
-            player_user_links.player_id AS playerId
-     FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
+            app_users.role
+     FROM app_users
+     WHERE NOT EXISTS (SELECT 1 FROM player_user_links WHERE player_user_links.user_id = app_users.id)
      ORDER BY app_users.name, app_users.email`
   );
   response.json({ users });
@@ -832,16 +809,9 @@ app.post("/api/admin/users", requireSameOrigin, requireUser, requireAdmin, async
     const email = typeof request.body.email === "string" ? request.body.email.trim().toLowerCase() : "";
     const password = typeof request.body.password === "string" ? request.body.password : "";
     const role = request.body.role;
-    const playerId = request.body.playerId == null || request.body.playerId === "" ? null : Number(request.body.playerId);
     if (!name || name.length > 80 || !validEmail.test(email) || email.length > 254 ||
-        password.length < minimumPasswordLength || password.length > 1024 || !validRoles.has(role) ||
-        (role === "player" && (!Number.isSafeInteger(playerId) || !readAppState().data.players.some(player => Number(player.id) === playerId))) ||
-        (role !== "player" && playerId !== null)) {
+        password.length < minimumPasswordLength || password.length > 1024 || !validRoles.has(role)) {
       apiError(response, 400, `Periksa data akun. Kata sandi harus memiliki minimal ${minimumPasswordLength} karakter.`);
-      return;
-    }
-    if (role === "player" && database.get("SELECT user_id FROM player_user_links WHERE player_id = ?", [playerId])) {
-      apiError(response, 409, "Pemain tersebut sudah memiliki akun login.");
       return;
     }
     if (role === "admin" && Number(database.get("SELECT COUNT(*) AS count FROM app_users WHERE role = 'admin'").count) > 0) {
@@ -856,12 +826,11 @@ app.post("/api/admin/users", requireSameOrigin, requireUser, requireAdmin, async
         error.code = "ADMIN_ALREADY_EXISTS";
         throw error;
       }
-      database.run("INSERT INTO app_users (name, email, role, password_hash) VALUES (?, ?, ?, ?)", [name, email, role === "player" ? "coach" : role, passwordHash]);
+      database.run("INSERT INTO app_users (name, email, role, password_hash) VALUES (?, ?, ?, ?)", [name, email, role, passwordHash]);
       user = database.get("SELECT id, name, email, role FROM app_users WHERE email = ? COLLATE NOCASE", [email]);
-      if (role === "player") database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [user.id, playerId]);
       insertActivity(request.user, `Membuat akun: ${name} (${role})`);
     });
-    response.status(201).json({ user: { ...user, role, playerId } });
+    response.status(201).json({ user });
   } catch (error) {
     if (error.code === "ADMIN_ALREADY_EXISTS") {
       apiError(response, 409, error.message);
@@ -887,16 +856,16 @@ app.put("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin, as
       apiError(response, 404, "Akun pengguna tidak ditemukan.");
       return;
     }
+    if (database.get("SELECT user_id FROM player_user_links WHERE user_id = ?", [id])) {
+      apiError(response, 409, "Akun login pemain sudah dinonaktifkan dan tidak dapat diubah.");
+      return;
+    }
     const name = typeof request.body.name === "string" ? request.body.name.trim() : "";
     const email = typeof request.body.email === "string" ? request.body.email.trim().toLowerCase() : "";
     const role = request.body.role;
     const password = typeof request.body.password === "string" ? request.body.password : "";
-    const playerId = request.body.playerId == null || request.body.playerId === "" ? null : Number(request.body.playerId);
-    const state = readAppState().data;
     if (!name || name.length > 80 || !validLoginIdentifier(email) || email.length > 254 ||
-        !validRoles.has(role) || (password && (password.length < minimumPasswordLength || password.length > 1024)) ||
-        (role === "player" && (!Number.isSafeInteger(playerId) || !state || !state.players.some(player => Number(player.id) === playerId))) ||
-        (role !== "player" && playerId !== null)) {
+        !validRoles.has(role) || (password && (password.length < minimumPasswordLength || password.length > 1024))) {
       apiError(response, 400, `Periksa data pengguna. Username/email valid dan kata sandi baru minimal ${minimumPasswordLength} karakter.`);
       return;
     }
@@ -908,13 +877,6 @@ app.put("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin, as
     if (current.role === "admin" && role !== "admin" && adminCount() <= 1) {
       apiError(response, 409, "Role admin terakhir tidak dapat diubah.");
       return;
-    }
-    if (role === "player") {
-      const linked = database.get("SELECT user_id FROM player_user_links WHERE player_id = ?", [playerId]);
-      if (linked && Number(linked.user_id) !== id) {
-        apiError(response, 409, "Pemain tersebut sudah terhubung ke akun lain.");
-        return;
-      }
     }
     const passwordHash = password ? await bcrypt.hash(password, 12) : current.password_hash;
     let updatedUser;
@@ -931,17 +893,11 @@ app.put("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin, as
       }
       database.run(
         "UPDATE app_users SET name = ?, email = ?, role = ?, password_hash = ? WHERE id = ?",
-        [name, email, role === "player" ? "coach" : role, passwordHash, id]
+        [name, email, role, passwordHash, id]
       );
-      database.run("DELETE FROM player_user_links WHERE user_id = ?", [id]);
-      if (role === "player") database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [id, playerId]);
       insertActivity(request.user, `Memperbarui akun: ${name} (${role})`);
       updatedUser = database.get(
-        `SELECT app_users.id, app_users.name, app_users.email, app_users.avatar_data_url AS avatar, app_users.created_at AS createdAt,
-                CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS role,
-                player_user_links.player_id AS playerId
-         FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
-         WHERE app_users.id = ?`,
+        "SELECT id, name, email, avatar_data_url AS avatar, created_at AS createdAt, role FROM app_users WHERE id = ?",
         [id]
       );
     });
@@ -953,10 +909,6 @@ app.put("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin, as
     }
     if (String(error.message).includes("UNIQUE constraint failed: app_users.email")) {
       apiError(response, 409, "Username atau email tersebut sudah digunakan.");
-      return;
-    }
-    if (String(error.message).includes("UNIQUE constraint failed: player_user_links.player_id")) {
-      apiError(response, 409, "Pemain tersebut sudah terhubung ke akun lain.");
       return;
     }
     next(error);
@@ -989,79 +941,12 @@ app.delete("/api/admin/users/:id", requireSameOrigin, requireUser, requireAdmin,
   }
 });
 
-app.get("/api/player-accounts", requireUser, requireOperator, requireMenuAction("players", "view"), (request, response) => {
-  const accounts = database.all(
-    `SELECT player_user_links.player_id AS playerId, app_users.email AS username
-     FROM player_user_links JOIN app_users ON app_users.id = player_user_links.user_id
-     ORDER BY app_users.email`
-  );
-  response.json({ accounts });
+app.all("/api/player-accounts", (request, response) => {
+  apiError(response, 410, "Login pemain sudah dinonaktifkan. Gunakan portal publik pemain.");
 });
 
-app.post("/api/player-accounts", requireSameOrigin, requireUser, requireOperator, requireMenuAction("players", "edit"), async (request, response, next) => {
-  try {
-    const playerId = Number(request.body.playerId);
-    const username = typeof request.body.username === "string" ? request.body.username.trim().toLowerCase() : "";
-    const password = typeof request.body.password === "string" ? request.body.password : "";
-    const state = readAppState().data;
-    const player = state && state.players.find(item => Number(item.id) === playerId);
-    if (!Number.isSafeInteger(playerId) || !player || !validLoginIdentifier(username) || username.length > 254 ||
-        password.length < minimumPasswordLength || password.length > 1024) {
-      apiError(response, 400, `Periksa username dan kata sandi. Kata sandi minimal ${minimumPasswordLength} karakter.`);
-      return;
-    }
-    if (database.get("SELECT user_id FROM player_user_links WHERE player_id = ?", [playerId])) {
-      apiError(response, 409, "Pemain tersebut sudah memiliki akun login.");
-      return;
-    }
-    const passwordHash = await bcrypt.hash(password, 12);
-    let user;
-    database.transaction(() => {
-      database.run("INSERT INTO app_users (name, email, role, password_hash) VALUES (?, ?, 'coach', ?)", [player.name, username, passwordHash]);
-      user = database.get("SELECT id, name, email FROM app_users WHERE email = ? COLLATE NOCASE", [username]);
-      database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [user.id, playerId]);
-    });
-    response.status(201).json({ account: { playerId, username: user.email } });
-  } catch (error) {
-    if (String(error.message).includes("UNIQUE constraint failed")) {
-      apiError(response, 409, "Username tersebut sudah digunakan.");
-      return;
-    }
-    next(error);
-  }
-});
-
-app.put("/api/player-accounts/:playerId", requireSameOrigin, requireUser, requireOperator, requireMenuAction("players", "edit"), async (request, response, next) => {
-  try {
-    const playerId = Number(request.params.playerId);
-    const username = typeof request.body.username === "string" ? request.body.username.trim().toLowerCase() : "";
-    const password = typeof request.body.password === "string" ? request.body.password : "";
-    if (!Number.isSafeInteger(playerId) || playerId < 1 || !validLoginIdentifier(username) || username.length > 254 ||
-        password.length < minimumPasswordLength || password.length > 1024) {
-      apiError(response, 400, `Periksa username dan kata sandi. Kata sandi minimal ${minimumPasswordLength} karakter.`);
-      return;
-    }
-    const linked = database.get(
-      "SELECT user_id FROM player_user_links WHERE player_id = ?",
-      [playerId]
-    );
-    if (!linked) {
-      apiError(response, 404, "Akun pemain tidak ditemukan.");
-      return;
-    }
-    const passwordHash = await bcrypt.hash(password, 12);
-    database.transaction(() => database.run(
-      "UPDATE app_users SET email = ?, password_hash = ? WHERE id = ?",
-      [username, passwordHash, linked.user_id]
-    ));
-    response.json({ account: { playerId, username } });
-  } catch (error) {
-    if (String(error.message).includes("UNIQUE constraint failed")) {
-      apiError(response, 409, "Username tersebut sudah digunakan.");
-      return;
-    }
-    next(error);
-  }
+app.all("/api/player-accounts/:playerId", (request, response) => {
+  apiError(response, 410, "Login pemain sudah dinonaktifkan. Gunakan portal publik pemain.");
 });
 
 app.get("/api/players/template", requireUser, requireOperator, requireMenuAction("players", "view"), async (request, response, next) => {
@@ -1247,33 +1132,6 @@ app.post(
 
 app.get("/api/state", requireUser, (request, response) => {
   const result = readAppState();
-  if (request.user.role === "player" && result.data) {
-    const playerId = Number(request.user.player_id);
-    const player = result.data.players.find(item => Number(item.id) === playerId);
-    if (!player) {
-      apiError(response, 403, "Akun pemain tidak lagi terhubung ke biodata pemain.");
-      return;
-    }
-    const data = {
-      ...result.data,
-      players: [player],
-      sessions: result.data.sessions.map(session => ({
-        ...session,
-        attendance: session.attendance && session.attendance[playerId] ? { [playerId]: session.attendance[playerId] } : {},
-        evaluations: session.evaluations && session.evaluations[playerId] ? { [playerId]: session.evaluations[playerId] } : {}
-      })),
-      matches: result.data.matches.map(match => ({
-        ...match,
-        stats: (match.stats || []).filter(stat => Number(stat.playerId) === playerId)
-      })),
-      teams: (result.data.teams || [])
-        .filter(team => (team.playerIds || []).some(id => Number(id) === playerId))
-        .map(team => ({ ...team, playerIds: [playerId] })),
-      targets: Object.fromEntries(Object.entries(result.data.targets || {}).filter(([key]) => key.startsWith(`${playerId}:`)))
-    };
-    response.json({ data, isInitial: result.isInitial, role: request.user.role, playerId });
-    return;
-  }
   response.json({ ...result, role: request.user.role });
 });
 
@@ -1348,14 +1206,14 @@ function getBackupSettings() {
 }
 
 function createBackup() {
-  const state = readAppState().data;
-  if (!state) throw new Error("Data aplikasi belum pernah tersimpan.");
+  const storedState = readAppState().data;
+  if (!storedState) throw new Error("Data aplikasi belum pernah tersimpan.");
+  const state = sanitizeAppState(storedState, storedState, "admin");
   const users = database.all(
     `SELECT app_users.id, app_users.name, app_users.email, app_users.role,
-            app_users.password_hash, app_users.created_at,
-            player_user_links.player_id,
-            CASE WHEN player_user_links.user_id IS NULL THEN app_users.role ELSE 'player' END AS backup_role
-     FROM app_users LEFT JOIN player_user_links ON player_user_links.user_id = app_users.id
+            app_users.password_hash, app_users.created_at
+     FROM app_users
+     WHERE NOT EXISTS (SELECT 1 FROM player_user_links WHERE player_user_links.user_id = app_users.id)
      ORDER BY app_users.id`
   );
   const settings = database.get("SELECT enabled, time_local FROM backup_settings WHERE id = 1");
@@ -1523,10 +1381,11 @@ app.post("/api/admin/restore", requireSameOrigin, requireUser, requireAdmin, (re
     const userIds = new Set();
     const userEmails = new Set();
     const users = backup.users.map(user => {
+      const role = user && (user.backup_role || user.role);
       if (!isRecord(user) || !Number.isSafeInteger(Number(user.id)) || Number(user.id) < 1 ||
           typeof user.name !== "string" || !user.name.trim() || user.name.length > 80 ||
           typeof user.email !== "string" || !validLoginIdentifier(user.email) || user.email.length > 254 ||
-          !validRoles.has(user.backup_role || user.role) ||
+          (!validRoles.has(role) && role !== "player") ||
           typeof user.password_hash !== "string" || !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(user.password_hash)) {
         throw new Error("Berkas backup berisi data akun yang tidak valid.");
       }
@@ -1538,14 +1397,13 @@ app.post("/api/admin/restore", requireSameOrigin, requireUser, requireAdmin, (re
         id: Number(user.id),
         name: user.name.trim(),
         email,
-        role: user.backup_role || user.role,
-        playerId: user.player_id == null ? null : Number(user.player_id),
+        role,
         passwordHash: user.password_hash,
         createdAt: typeof user.created_at === "string" && user.created_at.length <= 40
           ? user.created_at
           : new Date().toISOString()
       };
-    });
+    }).filter(user => user.role !== "player");
     if (users.filter(user => user.role === "admin").length !== 1) {
       apiError(response, 400, "Berkas backup harus berisi tepat satu akun admin.");
       return;
@@ -1557,14 +1415,8 @@ app.post("/api/admin/restore", requireSameOrigin, requireUser, requireAdmin, (re
       for (const user of users) {
         database.run(
           "INSERT INTO app_users (id, name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-          [user.id, user.name, user.email, user.role === "player" ? "coach" : user.role, user.passwordHash, user.createdAt || new Date().toISOString()]
+          [user.id, user.name, user.email, user.role, user.passwordHash, user.createdAt || new Date().toISOString()]
         );
-        if (user.role === "player") {
-          if (!Number.isSafeInteger(user.playerId) || !state.players.some(player => Number(player.id) === user.playerId)) {
-            throw new Error("Berkas backup berisi akun pemain tanpa biodata yang sesuai.");
-          }
-          database.run("INSERT INTO player_user_links (user_id, player_id) VALUES (?, ?)", [user.id, user.playerId]);
-        }
       }
       database.run(
         `INSERT INTO app_state (id, state_json, is_initial, updated_at) VALUES (1, ?, 0, CURRENT_TIMESTAMP)

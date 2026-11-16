@@ -23,9 +23,9 @@ Data aplikasi, akun, dan sesi login disimpan server-side di SQLite. Cookie sesi 
 
 Data lama di browser dapat diimpor sekali saat administrator pertama kali masuk ke database baru. Setelah itu database server menjadi sumber data bersama. Admin/pelatih dapat mengimpor daftar pemain dari Excel `.xlsx` atau CSV di menu Data pemain; template `.xlsx` dapat diunduh di halaman tersebut. Ikuti sheet **Petunjuk** dan daftar pilihan/rentang yang tersedia pada template. Kolom vertical jump (cm), jenis kelamin, dan tanggal lahir (format `YYYY-MM-DD`) bersifat opsional, sehingga template lama tetap kompatibel.
 
-Admin dapat membuat akun pemain dari Pengaturan akses atau dari bagian **Akun login pemain** pada tombol **Edit** di menu Data pemain. Username dapat berupa username sederhana atau email; kata sandi minimal 6 karakter dan disimpan dalam bentuk hash. Akun pemain hanya menerima profil, kehadiran, statistik, agenda, dan target milik pemain tersebut. Pemain tidak dapat mengubah data bersama.
+Pemain melihat statistik melalui **Portal publik pemain**; akun login dan role pemain tidak tersedia. Akun pemain lama dinonaktifkan dan tidak disertakan dalam daftar akun maupun backup. Profil dan statistik pemain tetap tersimpan.
 
-Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua untuk menghapus pemain beserta catatan terkait. Akun pemain yang masih terhubung harus dihapus dahulu dari daftar akun.
+Di menu Data pemain, pilih satu atau beberapa baris atau gunakan pilih semua untuk menghapus pemain beserta catatan terkait.
 
 Tombol **Statistik pemain** membuka detail kehadiran, statistik teknik per pertandingan, dan riwayat antropometri. Gunakan **Update antropometri** untuk mencatat tanggal pengukuran, tinggi, berat badan, vertical jump, spike reach, dan block reach. Grafik tren vertical jump serta jangkauan lompatan menampilkan riwayat dari waktu ke waktu; data lama tanpa vertical jump tetap dapat dibuka. Halaman statistik pemain menyediakan **Cetak PDF** untuk menyimpan ringkasan serta riwayat pemain. Profil pemain dapat diedit dari tombol **Edit profil**; penghapusan dari halaman detail memerlukan konfirmasi dan ikut menghapus catatan pemain yang terkait.
 
@@ -41,7 +41,7 @@ Menu **Latihan** menampilkan daftar sesi beserta status absensi dan materi latih
 
 Admin juga dapat memilih maksimal lima item navigasi bawah serta highlight-nya untuk setiap role. Aksi **Edit** dan **Hapus** dari Kalender mengikuti hak menu asal kegiatan: sesi latihan memakai menu **Latihan**, pertandingan memakai menu **Pertandingan**, dan agenda umum memakai menu **Kalender**.
 
-Pada Pengaturan, admin dapat mengatur visibilitas setiap menu dan batas tindakan per role: **Lihat saja**, **Edit/tambah**, atau **Termasuk hapus**. Admin selalu memiliki akses penuh; akun pemain tetap hanya dapat melihat data yang terhubung dengannya. Batas perubahan juga diperiksa server, bukan hanya dengan menyembunyikan tombol.
+Pada Pengaturan, admin dapat mengatur visibilitas setiap menu dan batas tindakan per role: **Lihat saja**, **Edit/tambah**, atau **Termasuk hapus**. Admin selalu memiliki akses penuh. Batas perubahan juga diperiksa server, bukan hanya dengan menyembunyikan tombol.
 
 Menu **Log aktivitas** khusus admin menampilkan hingga 200 aktivitas terbaru, termasuk login/logout, perubahan data, profil, kata sandi, dan akun pengguna. Log disimpan di SQLite dan tidak memuat kata sandi atau token.
 

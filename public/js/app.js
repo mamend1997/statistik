@@ -9,14 +9,13 @@
         admin: "Admin / Operator",
         principal: "Kepala Sekolah",
         curriculum: "Wakasek Kesiswaan",
-        coach: "Pelatih",
-        player: "Pemain"
+        coach: "Pelatih"
       };
       const pages = [
-        { id: "dashboard", label: "Dashboard", icon: "▦", roles: ["admin", "principal", "curriculum", "coach", "player"] },
+        { id: "dashboard", label: "Dashboard", icon: "▦", roles: ["admin", "principal", "curriculum", "coach"] },
         { id: "attendance", label: "Latihan", icon: "✓", roles: ["admin", "principal", "curriculum", "coach"] },
         { id: "training", label: "Pertandingan", icon: "◎", roles: ["admin", "coach"] },
-        { id: "schedule", label: "Kalender", icon: "▣", roles: ["admin", "principal", "curriculum", "coach", "player"] },
+        { id: "schedule", label: "Kalender", icon: "▣", roles: ["admin", "principal", "curriculum", "coach"] },
         { id: "players", label: "Data pemain", icon: "♟", roles: ["admin", "coach"] },
         { id: "teams", label: "Tim", icon: "🏐", roles: ["admin", "coach"] },
         { id: "strategy", label: "Papan Strategi", icon: "♧", roles: ["admin", "coach"] },
@@ -65,18 +64,16 @@
           admin: pages.filter(p => p.roles.includes("admin")).map(p => p.id),
           principal: ["dashboard", "attendance", "schedule", "reports"],
           curriculum: ["dashboard", "attendance", "schedule", "reports"],
-          coach: ["dashboard", "players", "teams", "attendance", "schedule", "training", "strategy", "reports"],
-          player: ["dashboard", "schedule"]
+          coach: ["dashboard", "players", "teams", "attendance", "schedule", "training", "strategy", "reports"]
         },
-        highlights: { admin: "dashboard", principal: "dashboard", curriculum: "schedule", coach: "attendance", player: "dashboard" },
+        highlights: { admin: "dashboard", principal: "dashboard", curriculum: "schedule", coach: "attendance" },
         bottomNav: {
           admin: ["dashboard", "players", "attendance", "schedule", "settings"],
           principal: ["dashboard", "attendance", "schedule", "reports"],
           curriculum: ["dashboard", "schedule", "attendance", "reports"],
-          coach: ["dashboard", "players", "attendance", "training", "schedule"],
-          player: ["dashboard", "schedule"]
+          coach: ["dashboard", "players", "attendance", "training", "schedule"]
         },
-        bottomHighlights: { admin: "dashboard", principal: "dashboard", curriculum: "schedule", coach: "attendance", player: "dashboard" },
+        bottomHighlights: { admin: "dashboard", principal: "dashboard", curriculum: "schedule", coach: "attendance" },
         accessPermissions: JSON.parse(JSON.stringify(defaultAccessPermissions)),
         menuConfigVersion: 1,
         players: [
@@ -110,7 +107,6 @@
       function liberoNumber() { return 3; }
       let signedInUser = null;
       let serverUsers = [];
-      let playerAccounts = [];
       let applicationBranding = { ...brandingDefaults };
       let data = JSON.parse(JSON.stringify(defaultData));
       let backupSettings = null;
@@ -305,7 +301,7 @@
         const loginSubmit = $("#login-submit");
         if (loginSubmit) loginSubmit.textContent = `Masuk ke ${applicationBranding.appName}`;
         const loginHelp = $("#login-help");
-        if (loginHelp) loginHelp.textContent = `Akun dan data tersimpan di database ${applicationBranding.appName}. Hubungi administrator jika belum memiliki akun.`;
+        if (loginHelp) loginHelp.textContent = `Pemain dapat membuka Portal Publik ${applicationBranding.appName} melalui tautan yang dibagikan admin atau pelatih.`;
         const favicon = $("#app-favicon");
         if (favicon) {
           const icon = applicationBranding.favicon;
@@ -314,7 +310,6 @@
         }
       }
       function persist() {
-        if (activeRole() === "player") return Promise.resolve(true);
         const snapshot = JSON.stringify(data);
         saveQueue = saveQueue.catch(() => {}).then(() => api("/api/state", {
           method: "PUT",
@@ -648,7 +643,6 @@
         renderRoster();
       }
       function dashboardPage() {
-        if (activeRole() === "player") return playerDashboardPage();
         const rates = data.players.map(p => attendanceRate(p.id));
         const avg = rates.length ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : 0;
         const upcoming = eventsUpcoming(3);
@@ -688,17 +682,6 @@
               ${topPlayers.map(p => `<tr><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.className)}</td><td>${esc(p.position)}</td><td><span class="progress"><i style="width:${attendanceRate(p.id)}%"></i></span>${attendanceRate(p.id)}%</td><td>${esc(p.spikeReach)} cm</td></tr>`).join("")}
             </tbody></table></div></section>
           ${nextSession ? `<div class="privacy-note">Sesi terakhir: <strong>${esc(nextSession.title)}</strong> · ${formatDate(nextSession.date)}. Data kehadiran dan progres digunakan sebagai indikator pembinaan, bukan diagnosis medis.</div>` : ""}`;
-      }
-      function playerDashboardPage() {
-        const player = data.players[0];
-        if (!player) return `${heading("Progres saya", "Data pemain belum tersedia.", "")}<div class="card empty">Hubungi pelatih untuk menghubungkan akun ini ke biodata pemain.</div>`;
-        const sessions = data.sessions.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
-        const recentEvaluation = sessions.map(session => session.evaluations && session.evaluations[player.id]).find(Boolean);
-        return `${heading("Progres saya", "Pantau perkembangan latihan dan performa pribadi.", "")}
-          <div class="grid metrics">${metric("Kehadiran", attendanceRate(player.id) + "%", `${data.sessions.length} sesi tercatat`, "✓")}${metric("Spike reach", `${player.spikeReach} cm`, "Pengukuran terbaru", "↗")}${metric("Vertical jump", player.verticalJump == null ? "—" : `${esc(player.verticalJump)} cm`, "Pengukuran terbaru", "↥")}${metric("Efisiensi serangan", skillEfficiency(player.id, "Attack") == null ? "—" : `${skillEfficiency(player.id, "Attack")}%`, "Dari statistik pertandingan", "◎")}</div>
-          <div class="grid dashboard-grid"><section class="card side-note"><h2 class="card-title">Profil atlet</h2><p class="card-sub">${esc(player.name)} · ${esc(player.className)}</p><div class="switch-row"><span>Tinggi / berat</span><strong>${esc(player.height)} cm · ${esc(player.weight)} kg</strong></div><div class="switch-row"><span>Vertical jump</span><strong>${player.verticalJump == null ? "Belum diukur" : `${esc(player.verticalJump)} cm`}</strong></div><div class="switch-row"><span>Jangkauan spike / block</span><strong>${esc(player.spikeReach)} / ${esc(player.blockReach)} cm</strong></div><div class="note-item"><div class="note-title">Catatan pelatih terbaru</div><div class="note-copy">${esc(recentEvaluation || "Belum ada evaluasi individu.")}</div></div></section>
-          <section class="card"><div class="card-head"><div><h2 class="card-title">Agenda tim</h2><p class="card-sub">Kegiatan yang akan datang</p></div><button class="button secondary small" data-page="schedule">Kalender</button></div><div class="event-list">${eventsUpcoming(4).map(eventRow).join("") || '<div class="empty">Belum ada agenda.</div>'}</div></section></div>
-          <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Riwayat latihan</h2><p class="card-sub">Kehadiran dan catatan dari pelatih</p></div></div><div class="event-list">${sessions.map(session => `<div class="event-row"><div class="date-tile"><strong>${dateObj(session.date).getDate()}</strong><span>${shortMonth(session.date)}</span></div><div style="min-width:0;flex:1"><div class="event-name">${esc(session.title)}</div><div class="event-meta">${session.attendance && session.attendance[player.id] ? esc(session.attendance[player.id]) : "Belum dicatat"}${session.evaluations && session.evaluations[player.id] ? ` · ${esc(session.evaluations[player.id])}` : ""}</div></div></div>`).join("") || '<div class="empty">Belum ada sesi latihan.</div>'}</div></section>`;
       }
       function playerRows(players) {
         return players.map(p => `<tr><td><input class="player-select" type="checkbox" data-select-player="${p.id}" ${selectedPlayerIds.has(Number(p.id)) ? "checked" : ""} aria-label="Pilih ${esc(p.name)}"></td><td><div class="player-name"><span class="player-avatar">${initials(p.name)}</span><span>${esc(p.name)}<span class="position">#${esc(p.number)}</span></span></div></td><td>${esc(p.position)}</td><td>${esc(p.className)}</td><td>${esc(p.height)} cm</td><td>${esc(p.weight)} kg</td><td>${p.verticalJump == null ? "—" : `${esc(p.verticalJump)} cm`}</td><td>${esc(p.spikeReach)} / ${esc(p.blockReach)} cm</td><td>${attendanceRate(p.id)}%</td><td><div class="toolbar-actions"><button class="button small" data-player-stats="${p.id}">Statistik pemain</button><button class="button secondary small" data-edit-player="${p.id}">Edit profil</button></div></td></tr>`).join("");
@@ -1073,9 +1056,7 @@
           ${liveContent}</section>`;
       }
       function targetsPage() {
-        const player = activeRole() === "player"
-          ? data.players[0]
-          : playerById(selectedTargetPlayerId) || data.players[0];
+        const player = playerById(selectedTargetPlayerId) || data.players[0];
         if (!player) return `${heading("Target performa", "Atur sasaran dan pantau hasil latihan.", "")}<div class="card empty">Tambahkan biodata pemain terlebih dahulu.</div>`;
         selectedTargetPlayerId = Number(player.id);
         const period = selectedTargetPeriod;
@@ -1092,7 +1073,7 @@
         const editable = ["admin", "coach"].includes(activeRole());
         const range = targetDateRange(period);
         return `${heading("Target performa", "Target memakai jumlah aksi sukses dan gagal yang dicatat pada pertandingan live.", "")}
-          <section class="card"><div class="toolbar target-toolbar"><div class="target-player-picker"><span class="target-kicker">${activeRole() === "player" ? "TARGET PRIBADI" : "PILIH PEMAIN"}</span>${activeRole() === "player" ? `<strong>${esc(player.name)} · ${esc(player.position)}</strong>` : `<select class="select-mini" id="target-player">${data.players.map(item => `<option value="${item.id}" ${Number(item.id) === Number(player.id) ? "selected" : ""}>${esc(item.name)} · ${esc(item.position)}</option>`).join("")}</select>`}</div><label class="target-period-picker" for="target-period"><span>Periode</span><select class="select-mini" id="target-period" aria-label="Periode target"><option value="week" ${period === "week" ? "selected" : ""}>Minggu ini</option><option value="month" ${period === "month" ? "selected" : ""}>Bulan ini</option></select></label></div>
+          <section class="card"><div class="toolbar target-toolbar"><div class="target-player-picker"><span class="target-kicker">PILIH PEMAIN</span><select class="select-mini" id="target-player">${data.players.map(item => `<option value="${item.id}" ${Number(item.id) === Number(player.id) ? "selected" : ""}>${esc(item.name)} · ${esc(item.position)}</option>`).join("")}</select></div><label class="target-period-picker" for="target-period"><span>Periode</span><select class="select-mini" id="target-period" aria-label="Periode target"><option value="week" ${period === "week" ? "selected" : ""}>Minggu ini</option><option value="month" ${period === "month" ? "selected" : ""}>Bulan ini</option></select></label></div>
           <div class="target-grid">${metrics.map(item => `<article class="card target-card"><div class="target-card-head"><span class="target-icon">${item.icon}</span><span class="target-kicker">CAPAIAN PERIODE</span></div><div class="target-label">${item.label}</div><div class="target-value-row"><strong class="target-value">${current[item.key]}</strong><span>${item.unit}</span></div><label class="target-input-label" for="target-${item.key}">${item.isMaximum ? "Maksimal" : "Target"} ${item.unit}</label><div class="target-input-control"><input id="target-${item.key}" type="number" min="0" step="1" data-target-value="${item.key}" value="${saved[item.key] == null ? defaults[item.key] : esc(saved[item.key])}" placeholder="Atur target" ${editable ? "" : "disabled"}><span>${item.unit}</span></div></article>`).join("")}</div>
           ${editable ? '<div class="target-actions"><button class="button" data-action="save-target">Simpan target</button></div>' : '<p class="privacy-note">Target ditetapkan oleh pelatih. Perbarui data dengan pelatih jika target perlu disesuaikan.</p>'}
           <p class="privacy-note">Target awal berbeda menurut posisi (${esc(player.position)}); nilai bisa disesuaikan pelatih. Target keberhasilan adalah jumlah minimal, sedangkan servis gagal dan receive gagal adalah batas maksimal. Periode data ${formatDate(range.start)}–${formatDate(range.end)}${period === "month" ? " (nilai default bulanan = 4× target mingguan)" : ""}.</p></section>`;
@@ -1179,15 +1160,15 @@
           <h3 class="card-title" style="margin:22px 0 4px">Hak tindakan per menu</h3><p class="card-sub">Pilih batas akses tertinggi. Hak edit mencakup tambah dan ubah; hapus dapat diberikan terpisah.</p>
           <div class="access-level-list">${pages.filter(p => !["settings", "activityLog"].includes(p.id)).map(p => {
             const level = data.accessPermissions[role] && data.accessPermissions[role][p.id] || "view";
-            const fixed = role === "admin" || role === "player";
+            const fixed = role === "admin";
             return `<div class="access-level-row"><span class="access-level-name">${esc(p.label)}</span><div class="access-level-options" role="radiogroup" aria-label="Hak tindakan ${esc(p.label)} untuk ${esc(roles[role])}">${[["view", "Lihat saja"], ["edit", "Edit/tambah"], ["full", "Termasuk hapus"]].map(([value, label]) => `<label class="access-level-option ${level === value ? "selected" : ""}"><input type="radio" name="access-${role}-${p.id}" value="${value}" data-access-menu="${p.id}" ${level === value ? "checked" : ""} ${fixed ? "disabled" : ""}><span>${label}</span></label>`).join("")}</div></div>`;
           }).join("")}</div>
-          ${role === "admin" ? '<p class="privacy-note">Hak Admin selalu penuh agar pengaturan dan pemulihan data tidak terkunci.</p>' : role === "player" ? '<p class="privacy-note">Akun pemain selalu hanya dapat melihat data yang terhubung ke akunnya.</p>' : ""}
+          ${role === "admin" ? '<p class="privacy-note">Hak Admin selalu penuh agar pengaturan dan pemulihan data tidak terkunci.</p>' : ""}
           <div class="field" style="margin-top:15px"><label for="highlight-select">Menu sorotan / pin role ini</label><select id="highlight-select" ${allowed.length ? "" : "disabled"}>${pages.filter(p => allowed.includes(p.id)).map(p => `<option value="${p.id}" ${data.highlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div>
           <h3 class="card-title" style="margin:22px 0 4px">Navigasi bawah HP · maksimal 5 menu</h3><p class="card-sub">Pilih menu yang tampil dan atur menu sorotannya.</p>
           ${pages.filter(p => allowed.includes(p.id) && (p.id !== "settings" || role === "admin")).map(p => `<label class="switch-row bottom-menu-option"><span>${esc(p.label)}</span><input class="switch bottom-menu-switch" type="checkbox" data-bottom-menu="${p.id}" ${bottomAllowed.includes(p.id) ? "checked" : ""} aria-label="Tampilkan ${esc(p.label)} di navigasi bawah"></label>`).join("")}
           <div class="field" style="margin-top:12px"><label for="bottom-highlight-select">Menu highlight navigasi bawah</label><select id="bottom-highlight-select" ${bottomAllowed.length ? "" : "disabled"}>${pages.filter(p => bottomAllowed.includes(p.id)).map(p => `<option value="${p.id}" ${data.bottomHighlights && data.bottomHighlights[role] === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div></div></section>
-          <section class="card side-note"><h2 class="card-title">Akun pengguna</h2><p class="card-sub">Akun tersimpan di database VolleyDesk</p>${serverUsers.map(u => `<div class="note-item"><div class="account-row"><div class="account-identity">${u.avatar ? `<img class="account-avatar" src="${esc(u.avatar)}" alt="">` : `<span class="account-avatar account-avatar-fallback">${esc(initials(u.name))}</span>`}<div><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}${u.playerId && playerById(u.playerId) ? ` · ${esc(playerById(u.playerId).name)}` : ""}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div></div><div class="account-actions"><button class="button secondary small" data-edit-user="${u.id}">Edit</button><button class="close-x" data-delete-user="${u.id}" aria-label="Hapus akun ${esc(u.name)}" ${Number(u.id) === Number(signedInUser.id) ? "disabled" : ""}>×</button></div></div></div>`).join("")}
+          <section class="card side-note"><h2 class="card-title">Akun pengguna</h2><p class="card-sub">Akun tersimpan di database VolleyDesk</p>${serverUsers.map(u => `<div class="note-item"><div class="account-row"><div class="account-identity">${u.avatar ? `<img class="account-avatar" src="${esc(u.avatar)}" alt="">` : `<span class="account-avatar account-avatar-fallback">${esc(initials(u.name))}</span>`}<div><div class="note-title">${esc(u.name)}</div><div class="note-copy">${esc(u.email)}</div><span class="tag blue" style="margin-top:6px">${esc(roles[u.role] || u.role)}</span></div></div><div class="account-actions"><button class="button secondary small" data-edit-user="${u.id}">Edit</button><button class="close-x" data-delete-user="${u.id}" aria-label="Hapus akun ${esc(u.name)}" ${Number(u.id) === Number(signedInUser.id) ? "disabled" : ""}>×</button></div></div></div>`).join("")}
           <div class="privacy-note">Akses akun diverifikasi oleh server. Hanya satu akun admin yang dapat terdaftar.</div></section></div>
           <section class="card wide-card"><div class="card-head"><div><h2 class="card-title">Identitas aplikasi & kop dokumen</h2><p class="card-sub">Atur nama aplikasi, judul tab browser, serta kop untuk hasil cetak laporan dan statistik pemain.</p></div></div>
             <div class="form-grid branding-form">
@@ -1509,7 +1490,6 @@
       function editPlayerModal(id) {
         const player = playerById(id);
         if (!player) return;
-        const account = playerAccounts.find(item => Number(item.playerId) === Number(player.id));
         const positions = ["Setter", "Outside Hitter", "Opposite", "Middle Blocker", "Libero"];
         showModal("Edit profil pemain · " + esc(player.name), `<form><div class="form-grid">
           <div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" value="${esc(player.name)}"></div>
@@ -1518,25 +1498,11 @@
           <div class="field"><label>Kelas</label><input name="className" maxlength="40" value="${esc(player.className)}" required></div>
           <div class="field"><label>Jenis kelamin</label><select name="gender"><option value="" ${!player.gender ? "selected" : ""}>Belum diisi</option><option value="Perempuan" ${player.gender === "Perempuan" ? "selected" : ""}>Perempuan</option><option value="Laki-laki" ${player.gender === "Laki-laki" ? "selected" : ""}>Laki-laki</option></select></div>
           <div class="field full"><label>Tanggal lahir (opsional)</label><input name="birthDate" type="date" max="${todayISO()}" value="${esc(player.birthDate || "")}"></div>
-          <h3 class="card-title field full" style="margin:8px 0 0">Akun login pemain</h3>
-          <div class="field full"><label>Username atau email</label><input name="username" type="text" maxlength="254" autocomplete="username" value="${esc(account ? account.username : "")}" placeholder="contoh: alya12"></div>
-          <div class="field full"><label>${account ? "Kata sandi baru (opsional)" : `Kata sandi (minimal ${MIN_PASSWORD_LENGTH} karakter)`}</label><input name="password" type="password" minlength="${MIN_PASSWORD_LENGTH}" maxlength="1024" autocomplete="new-password" placeholder="${account ? "Kosongkan jika tidak ingin mengganti kata sandi" : "Kosongkan jika belum ingin membuat akun"}"></div>
-          </div><p class="privacy-note">${account ? "Biarkan kata sandi kosong jika tidak ingin mengubah akun. Jika username diubah, masukkan kata sandi baru juga." : "Isi username dan kata sandi untuk membuat akun login. Kedua kolom dapat dikosongkan jika belum diperlukan."}</p>
+          </div>
           <div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan profil</button></div></form>`, async fd => {
           const name = String(fd.get("name") || "").trim();
           const className = String(fd.get("className") || "").trim();
-          const username = String(fd.get("username") || "").trim().toLowerCase();
-          const password = String(fd.get("password") || "");
-          const accountChanged = account
-            ? username !== account.username || Boolean(password)
-            : Boolean(username || password);
           if (!name || !className) throw new Error("Nama pemain dan kelas wajib diisi.");
-          if (accountChanged && (!username || !password)) {
-            throw new Error(`Isi username dan kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter untuk menyimpan perubahan akun.`);
-          }
-          if (accountChanged && password.length < MIN_PASSWORD_LENGTH) {
-            throw new Error(`Kata sandi minimal ${MIN_PASSWORD_LENGTH} karakter.`);
-          }
           const previousPlayer = JSON.parse(JSON.stringify(player));
           Object.assign(player, {
             name, position: String(fd.get("position")), number: Number(fd.get("number")),
@@ -1546,29 +1512,7 @@
             Object.assign(player, previousPlayer);
             return false;
           }
-          if (accountChanged) {
-            try {
-              const result = await api(account ? `/api/player-accounts/${player.id}` : "/api/player-accounts", {
-                method: account ? "PUT" : "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ playerId: Number(player.id), username, password })
-              });
-              playerAccounts = playerAccounts.filter(item => Number(item.playerId) !== Number(player.id)).concat(result.account);
-            } catch (error) {
-              throw new Error(`Profil pemain tersimpan, tetapi akun login gagal diperbarui: ${error.message}`);
-            }
-            if (activeRole() === "admin") {
-              try {
-                const users = await api("/api/admin/users");
-                serverUsers = users.users;
-              } catch (error) {
-                console.error("Daftar akun admin tidak dapat diperbarui.", error);
-                toast(`Profil dan akun login tersimpan, tetapi daftar akun gagal dimuat: ${error.message}`);
-                return "skip-persist";
-              }
-            }
-          }
-          toast(accountChanged ? "Profil pemain dan akun login diperbarui." : "Profil pemain diperbarui.");
+          toast("Profil pemain diperbarui.");
           return "skip-persist";
         });
       }
@@ -2065,9 +2009,8 @@
           <div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" value="${esc(user.name)}"></div>
           <div class="field full"><label>Username atau email</label><input name="email" type="text" required maxlength="254" value="${esc(user.email)}"></div>
           <div class="field full"><label>Role</label>${roleField}</div>
-          <div class="field full" id="edit-user-player-field" ${user.role === "player" ? "" : "hidden"}><label>Hubungkan ke biodata pemain</label><select name="playerId">${data.players.map(player => `<option value="${player.id}" ${Number(user.playerId) === Number(player.id) ? "selected" : ""}>${esc(player.name)} · #${esc(player.number)} · ${esc(player.className)}</option>`).join("")}</select></div>
           <div class="field full"><label>Kata sandi baru (opsional, minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password" placeholder="Kosongkan jika tidak diubah"></div>
-          </div><p class="privacy-note">${isAdmin ? "Role admin tidak dapat diubah dari pengelolaan akun. Gunakan Profil untuk memperbarui nama, username, dan kata sandi admin." : "Mengubah role menjadi Pemain memerlukan biodata pemain yang akan dihubungkan."}</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan perubahan</button></div></form>`, async fd => {
+          </div><p class="privacy-note">${isAdmin ? "Role admin tidak dapat diubah dari pengelolaan akun. Gunakan Profil untuk memperbarui nama, username, dan kata sandi admin." : "Role menentukan hak akses menu dan fitur yang tersedia."}</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Simpan perubahan</button></div></form>`, async fd => {
           const role = String(fd.get("role"));
           const result = await api(`/api/admin/users/${user.id}`, {
             method: "PUT",
@@ -2076,25 +2019,19 @@
               name: String(fd.get("name")).trim(),
               email: String(fd.get("email")).trim(),
               role,
-              playerId: role === "player" ? Number(fd.get("playerId")) : null,
               password: String(fd.get("password") || "")
             })
           });
           const updatedIndex = serverUsers.findIndex(item => Number(item.id) === Number(user.id));
           if (updatedIndex >= 0) serverUsers[updatedIndex] = result.user;
-          const accounts = await api("/api/player-accounts");
-          playerAccounts = accounts.accounts;
           if (Number(user.id) === Number(signedInUser.id)) signedInUser = Object.assign({}, signedInUser, result.user);
           toast("Akun pengguna berhasil diperbarui.");
           return "skip-persist";
         });
-        const roleSelect = $("#edit-user-role");
-        const playerField = $("#edit-user-player-field");
-        if (roleSelect && playerField) roleSelect.addEventListener("change", () => { playerField.hidden = roleSelect.value !== "player"; });
       }
       function addUserModal() {
         const adminExists = serverUsers.some(user => user.role === "admin");
-        showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role" id="new-user-role">${Object.entries(roles).map(([id, label]) => `<option value="${id}" ${id === (adminExists ? "coach" : "admin") ? "selected" : ""} ${adminExists && id === "admin" ? "disabled" : ""}>${esc(label)}${adminExists && id === "admin" ? " (sudah ada)" : ""}</option>`).join("")}</select></div><div class="field full" id="new-user-player-field" hidden><label>Hubungkan ke biodata pemain</label><select name="playerId" id="new-user-player">${data.players.map(p => `<option value="${p.id}">${esc(p.name)} · #${esc(p.number)} · ${esc(p.className)}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><p class="privacy-note">${adminExists ? "Akun admin sudah tersedia dan tidak dapat ditambahkan lagi. " : ""}Akun pemain hanya dapat melihat progres biodata yang dihubungkan. Bagikan kata sandi sementara melalui kanal aman.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
+        showModal("Tambah akun pengguna", `<form><div class="form-grid"><div class="field full"><label>Nama lengkap</label><input name="name" required maxlength="80" autocomplete="name"></div><div class="field full"><label>Email</label><input name="email" type="email" required autocomplete="email"></div><div class="field full"><label>Role</label><select name="role">${Object.entries(roles).map(([id, label]) => `<option value="${id}" ${id === (adminExists ? "coach" : "admin") ? "selected" : ""} ${adminExists && id === "admin" ? "disabled" : ""}>${esc(label)}${adminExists && id === "admin" ? " (sudah ada)" : ""}</option>`).join("")}</select></div><div class="field full"><label>Kata sandi sementara (minimal ${MIN_PASSWORD_LENGTH} karakter)</label><input name="password" type="password" required minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password"></div></div><p class="privacy-note">${adminExists ? "Akun admin sudah tersedia dan tidak dapat ditambahkan lagi. " : ""}Bagikan kata sandi sementara melalui kanal aman.</p><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>Batal</button><button class="button">Buat akun</button></div></form>`, async fd => {
           const email = String(fd.get("email")).trim().toLowerCase();
           const password = String(fd.get("password"));
           const role = String(fd.get("role"));
@@ -2102,22 +2039,12 @@
           const result = await api("/api/admin/users", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: String(fd.get("name")).trim(), email, role, password, playerId: role === "player" ? Number(fd.get("playerId")) : null })
+            body: JSON.stringify({ name: String(fd.get("name")).trim(), email, role, password })
           });
           serverUsers.push(result.user);
-          if (result.user.role === "player") {
-            playerAccounts = playerAccounts.filter(account => Number(account.playerId) !== Number(result.user.playerId))
-              .concat({ playerId: result.user.playerId, username: result.user.email });
-          }
           toast("Akun pengguna berhasil dibuat.");
           return "skip-persist";
         });
-        const roleSelect = $("#new-user-role");
-        const playerField = $("#new-user-player-field");
-        if (roleSelect && playerField) {
-          roleSelect.addEventListener("change", () => { playerField.hidden = roleSelect.value !== "player"; });
-          playerField.hidden = roleSelect.value !== "player";
-        }
       }
       function downloadCsv(filename, rows) {
         const csv = rows.map(row => row.map(value => '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"').join(",")).join("\r\n");
@@ -2238,11 +2165,6 @@
       async function deletePlayers(playerIds, confirmation) {
         const selected = Array.from(new Set(playerIds.map(Number))).filter(id => playerById(id));
         if (!selected.length) return;
-        const linked = playerAccounts.filter(account => selected.includes(Number(account.playerId)));
-        if (linked.length) {
-          toast("Pemain terhubung ke akun login. Hapus akun tersebut terlebih dahulu melalui Pengaturan akses.");
-          return;
-        }
         if (!window.confirm(confirmation)) return;
         const previousData = JSON.stringify(data);
         const removed = new Set(selected);
@@ -2485,6 +2407,8 @@
         const needsActivityLogMigration = !Array.isArray(storedAdminMenus) || !storedAdminMenus.includes("activityLog");
         const needsAccessMigration = !state || !state.accessPermissions;
         const needsBrandingMigration = !state || !state.branding || !state.branding.appName;
+        const hasLegacyPlayerRole = ["menuVisibility", "highlights", "bottomNav", "bottomHighlights", "accessPermissions"]
+          .some(key => state && state[key] && Object.prototype.hasOwnProperty.call(state[key], "player"));
         data = Object.assign(JSON.parse(JSON.stringify(defaultData)), state || {});
         data.menuVisibility = Object.assign({}, defaultData.menuVisibility, data.menuVisibility || {});
         data.highlights = Object.assign({}, defaultData.highlights, data.highlights || {});
@@ -2498,6 +2422,11 @@
         data.strategyBoards = Array.isArray(data.strategyBoards) ? data.strategyBoards : [];
         data.branding = Object.assign({}, brandingDefaults, applicationBranding, data.branding || {});
         data.accessPermissions = Object.assign(JSON.parse(JSON.stringify(defaultAccessPermissions)), data.accessPermissions || {});
+        delete data.menuVisibility.player;
+        delete data.highlights.player;
+        delete data.bottomNav.player;
+        delete data.bottomHighlights.player;
+        delete data.accessPermissions.player;
         Object.keys(roles).forEach(role => {
           data.accessPermissions[role] = Object.assign({}, defaultAccessPermissions[role], data.accessPermissions[role] || {});
           Object.keys(data.accessPermissions[role]).forEach(menu => {
@@ -2543,8 +2472,8 @@
         data.role = signedInUser.role;
         settingsRoleKey = signedInUser.role;
         selectedMatchId = data.matches[0] ? data.matches[0].id : null;
-        selectedTargetPlayerId = signedInUser.role === "player" ? signedInUser.playerId : (data.players[0] ? data.players[0].id : null);
-        return needsMenuMigration || needsAdminSettingsMigration || needsActivityLogMigration || needsAccessMigration || needsBrandingMigration || needsCalendarMigration;
+        selectedTargetPlayerId = data.players[0] ? data.players[0].id : null;
+        return hasLegacyPlayerRole || needsMenuMigration || needsAdminSettingsMigration || needsActivityLogMigration || needsAccessMigration || needsBrandingMigration || needsCalendarMigration;
       }
       async function saveBackupSchedule() {
         try {
@@ -2797,7 +2726,7 @@
             case "export-filtered-report": exportFilteredReport(el.dataset.reportType, el.dataset.reportFormat); break;
             case "refresh-recommendations": toast("Analisis rekomendasi diperbarui."); render(); break;
             case "save-target": {
-              const player = activeRole() === "player" ? data.players[0] : playerById(selectedTargetPlayerId);
+              const player = playerById(selectedTargetPlayerId);
               if (!player) break;
               const values = {};
               let invalid = false;
@@ -2944,7 +2873,6 @@
           try {
             await api(`/api/admin/users/${user.id}`, { method: "DELETE" });
             serverUsers = serverUsers.filter(item => Number(item.id) !== Number(user.id));
-            if (user.role === "player") playerAccounts = playerAccounts.filter(account => Number(account.playerId) !== Number(user.playerId));
             render();
             toast("Akun pengguna dihapus.");
           } catch (error) { toast(error.message); }
@@ -3312,10 +3240,6 @@
             });
             try { localStorage.setItem(LEGACY_IMPORTED_KEY, "1"); }
             catch (error) { console.error("Penanda migrasi browser tidak dapat disimpan.", error); }
-          }
-          if (["admin", "coach"].includes(signedInUser.role) && canEditMenu("players")) {
-            const accounts = await api("/api/player-accounts");
-            playerAccounts = accounts.accounts;
           }
           if (signedInUser.role === "admin") {
             const result = await api("/api/admin/users");
